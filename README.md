@@ -194,6 +194,42 @@ id = "2f6f0d3f4a4b4f6d9e1234567890abcd"
 - 配置 key 为：`proxy:settings`
 
 ---
+### 如果你想把 binding 直接命名成 `KV`
+
+这个项目代码本身支持下面这些绑定名：
+
+- `CONFIG_KV`
+- `CF_ACCEL_KV`
+- `ACCEL_KV`
+- `KV`
+
+所以你也可以这样写：
+
+```toml
+name = "cloudflare-worker-proxy-pro"
+main = "worker.js"
+compatibility_date = "2026-05-04"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "你的真实-kv-namespace-id"
+```
+
+例如：
+
+```toml
+[[kv_namespaces]]
+binding = "KV"
+id = "2f6f0d3f4a4b4f6d9e1234567890abcd"
+```
+
+注意：
+
+- `binding = "KV"`：可以
+- `id = "KV"`：不可以
+- `id` 必须是真实的 Cloudflare KV Namespace ID
+
+---
 
 ### 第 4 步：配置后台密码 `ADMIN`
 
