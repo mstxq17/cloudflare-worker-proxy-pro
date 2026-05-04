@@ -1196,15 +1196,11 @@ async function proxyTcpHttp(request, route) {
         'UPSTREAM_WRITE_TIMEOUT'
       );
     }
-    await withUpstreamTimeout(
-      writer.close(),
-      timeoutMs,
-      `TCP upstream request close timed out after ${timeoutMs}ms`,
-      'UPSTREAM_WRITE_TIMEOUT'
-    );
   } catch (error) {
     try { writer.releaseLock(); } catch {}
     throw error;
+  } finally {
+    try { writer.releaseLock(); } catch {}
   }
 
   const reader = socket.readable.getReader();
