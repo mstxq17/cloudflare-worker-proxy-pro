@@ -9,8 +9,7 @@ Cloudflare Worker Proxy Pro 是一个运行在 **Cloudflare Workers + KV** 上�
 - Hybrid upstream：标准 HTTP/HTTPS 使用 `fetch()`，特殊场景使用 `cloudflare:sockets`
 - DNS resolve：域名上游可通过 `node:dns` 的 `resolve4/resolve6` 解析后连接
 - IP origin：支持直接代理到 IP 源站
-- Host Header：支持为上游请求设置独立 `Host` 头
-- Header policy：支持请求头转发、删除、覆盖
+- Header policy：支持请求头转发、删除、覆盖；`Host` 可通过 `headers.set` 定义
 - KV storage：代理规则保存到 Cloudflare KV
 
 ## 域名模型
@@ -146,10 +145,10 @@ https://admin.rad0.indevs.in
 
 ```text
 subdomain: gh
+transport: fetch
 scheme: https
 upstreamHost: github.com
 upstreamPort: 443
-hostHeader: github.com
 resolveDns: enabled
 dnsRecord: auto
 ```
@@ -167,10 +166,10 @@ https://gh.rad0.indevs.in/robots.txt
 | `id` | 规则 ID |
 | `name` | 显示名称 |
 | `subdomain` | 子域名前缀，例如 `gh` |
+| `transport` | 代理方式，`fetch` 或 `tcp` |
 | `scheme` | 上游协议，`http` 或 `https` |
 | `upstreamHost` | 上游域名或 IP |
 | `upstreamPort` | 上游端口，HTTP 默认 `80`，HTTPS 默认 `443` |
-| `hostHeader` | 发送给上游的 `Host` 请求头 |
 | `resolveDns` | 域名上游是否先执行 DNS 解析 |
 | `dnsRecord` | DNS 记录偏好：`auto`、`A`、`AAAA` |
 | `upstreamPath` | 可选上游基础路径 |
@@ -181,7 +180,7 @@ https://gh.rad0.indevs.in/robots.txt
 
 ## TCP Sockets 限制
 
-Cloudflare Workers TCP Sockets 不适合代理标准 HTTP/HTTPS 网站端口。项目会对 `http:80` 和 `https:443` 自动使用 `fetch()`，其他特殊端口才尝试 TCP Sockets。TCP Sockets 仍遵循平台限制：不能连接 Cloudflare IP、`localhost`、部分私网或被平台禁止的地址；DNS 请求会计入 Worker subrequest limit。
+Cloudflare Workers TCP Sockets 不适合代理标准 HTTP/HTTPS 网站端口。后台可以为每条规则显式选择 `fetch` 或 `tcp`；标准网站反向代理建议使用 `fetch`，特殊端口或特殊 TCP 场景再选择 `tcp`。TCP Sockets 仍遵循平台限制：不能连接 Cloudflare IP、`localhost`、部分私网或被平台禁止的地址；DNS 请求会计入 Worker subrequest limit。
 
 HTTPS 域名上游默认可启用 DNS 解析。若源站强依赖 TLS SNI 且解析到 IP 后握手失败，可在后台关闭 `resolveDns`，让 TCP TLS 直接连接域名。
 
