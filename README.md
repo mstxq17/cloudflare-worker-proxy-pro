@@ -10,6 +10,7 @@ Cloudflare Worker Proxy Pro 是一个运行在 **Cloudflare Workers + KV** 上�
 - DNS resolve：域名上游可通过 `node:dns` 的 `resolve4/resolve6` 解析后连接
 - IP origin：支持直接代理到 IP 源站
 - Header policy：支持请求头转发、删除、覆盖；`Host` 可通过 `headers.set` 定义
+- Upstream health：后台显示每条规则的上游响应状态、HTTP 状态码与延迟
 - KV storage：代理规则保存到 Cloudflare KV
 
 ## 域名模型
@@ -145,6 +146,8 @@ https://admin.rad0.indevs.in
 
 ```text
 subdomain: gh
+locationPath: /
+proxyPassPath: <empty>
 transport: fetch
 scheme: https
 upstreamHost: github.com
@@ -167,18 +170,54 @@ https://gh.rad0.indevs.in/robots.txt
 | `id` | 规则 ID |
 | `name` | 显示名称 |
 | `subdomain` | 子域名前缀，例如 `gh` |
+| `locationPath` | Host 内的路径前缀，默认 `/`，多条同 Host 规则按最长前缀优先匹配 |
 | `transport` | 代理方式，`fetch` 或 `tcp` |
 | `scheme` | 上游协议，`http` 或 `https` |
 | `upstreamHost` | 上游域名或 IP |
 | `upstreamPort` | 上游端口，HTTP 默认 `80`，HTTPS 默认 `443` |
 | `upstreamTimeoutMs` | 上游超时时间，默认 `15000`，范围 `1000-120000` |
+| `proxyPassPath` | Nginx 风格 `proxy_pass` URI；留空保留完整路径，填 `/` 会剥离 `locationPath` 后拼接 |
 | `resolveDns` | 域名上游是否先执行 DNS 解析 |
 | `dnsRecord` | DNS 记录偏好：`auto`、`A`、`AAAA` |
-| `upstreamPath` | 可选上游基础路径 |
-| `preservePath` | 是否保留客户端请求 path 和 query |
 | `headers.forwardClientHeaders` | 是否转发客户端请求头 |
 | `headers.set` | 覆盖或新增请求头 |
 | `headers.remove` | 删除请求头 |
+
+## Nginx 风格路径规则
+
+每条 Host Route 可以设置 `locationPath` 和 `proxyPassPath`：
+
+```text
+locationPath: /api/
+proxyPassPath: <empty>
+```
+
+等价于：
+
+```nginx
+location /api/ {
+    proxy_pass http://backend;
+}
+```
+
+请求 `/api/user` 会转发为 `/api/user`。
+
+```text
+locationPath: /api/
+proxyPassPath: /
+```
+
+等价于：
+
+```nginx
+location /api/ {
+    proxy_pass http://backend/;
+}
+```
+
+请求 `/api/user` 会转发为 `/user`。
+
+如果同一个 `subdomain` 下存在多条规则，Worker 会选择 `locationPath` 最长的匹配项。
 
 ## TCP Sockets 限制
 
@@ -188,7 +227,7 @@ HTTPS 域名上游默认可启用 DNS 解析。若源站强依赖 TLS SNI 且解
 
 ## 许可
 
-本项目采用非商业使用许可。未经版权持有人书面授权，禁止将本项目或其衍生作品用于销售、付费服务、SaaS、托管平台、商业产品或其他直接商业获利场景。完整条款见 `LICENSE`。
+本项目采用 MIT License。完整条款见 `LICENSE`。
 
 ## 检查
 

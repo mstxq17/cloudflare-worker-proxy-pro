@@ -9,10 +9,11 @@ const DEFAULT_ADMIN_SUBDOMAIN = 'admin';
 const DEFAULT_LANDING_SUBDOMAIN = 'proxy';
 const DEFAULT_DNS_RECORD = 'auto';
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 15000;
+const DEFAULT_HEALTH_TIMEOUT_MS = 5000;
 const MIN_UPSTREAM_TIMEOUT_MS = 1000;
 const MAX_UPSTREAM_TIMEOUT_MS = 120000;
 const PROJECT_REPOSITORY_URL = 'https://github.com/mstxq17/cloudflare-worker-proxy-pro';
-const COPYRIGHT_TEXT = '© 2026 xq17 · Non-commercial use only';
+const COPYRIGHT_TEXT = '© 2026 xq17 · MIT License';
 const MAX_RESPONSE_HEADER_BYTES = 256 * 1024;
 const MAX_CHUNK_LINE_BYTES = 16 * 1024;
 
@@ -181,6 +182,8 @@ function githubPresetRoute() {
     upstreamHost: 'github.com',
     upstreamPort: 443,
     upstreamTimeoutMs: DEFAULT_UPSTREAM_TIMEOUT_MS,
+    locationPath: '/',
+    proxyPassPath: '',
     resolveDns: true,
     dnsRecord: DEFAULT_DNS_RECORD,
     preservePath: true,
@@ -203,6 +206,8 @@ function defaultRoute(index = 0) {
     upstreamHost: 'example.com',
     upstreamPort: 443,
     upstreamTimeoutMs: DEFAULT_UPSTREAM_TIMEOUT_MS,
+    locationPath: '/',
+    proxyPassPath: '',
     resolveDns: true,
     dnsRecord: DEFAULT_DNS_RECORD,
     preservePath: true,
@@ -239,6 +244,20 @@ function normalizeTransport(value = 'fetch') {
   return String(value || '').trim().toLowerCase() === 'tcp' ? 'tcp' : 'fetch';
 }
 
+function normalizePathValue(value = '/', { allowEmpty = false } = {}) {
+  const raw = String(value ?? '').trim().replace(/[?#].*$/, '');
+  if (!raw) return allowEmpty ? '' : '/';
+  return raw.startsWith('/') ? raw : `/${raw}`;
+}
+
+function normalizeLocationPath(value = '/') {
+  return normalizePathValue(value || '/', { allowEmpty: false });
+}
+
+function normalizeProxyPassPath(value = '') {
+  return normalizePathValue(value ?? '', { allowEmpty: true });
+}
+
 function normalizeUpstreamTimeoutMs(value = DEFAULT_UPSTREAM_TIMEOUT_MS) {
   const timeout = Number(value || DEFAULT_UPSTREAM_TIMEOUT_MS);
   if (!Number.isFinite(timeout)) return DEFAULT_UPSTREAM_TIMEOUT_MS;
@@ -258,6 +277,11 @@ function normalizeRoute(route = {}, index = 0) {
   const port = Number(route.upstreamPort || defaultPort);
   const transport = normalizeTransport(route.transport || base.transport);
   const upstreamTimeoutMs = normalizeUpstreamTimeoutMs(route.upstreamTimeoutMs || base.upstreamTimeoutMs);
+  const locationPath = normalizeLocationPath(route.locationPath || base.locationPath);
+  const legacyUpstreamPath = String(route.upstreamPath ?? '').trim();
+  const proxyPassPath = route.proxyPassPath !== undefined
+    ? normalizeProxyPassPath(route.proxyPassPath)
+    : normalizeProxyPassPath(route.preservePath === false ? (legacyUpstreamPath || '/') : legacyUpstreamPath);
   const resolveDns = !isIpAddress(upstreamHost) && (route.resolveDns !== undefined ? route.resolveDns === true : true);
   const dnsRecord = normalizeDnsRecord(route.dnsRecord);
   return {
@@ -271,10 +295,12 @@ function normalizeRoute(route = {}, index = 0) {
     upstreamHost,
     upstreamPort: Number.isFinite(port) ? port : defaultPort,
     upstreamTimeoutMs,
-    upstreamPath: String(route.upstreamPath ?? '').trim(),
+    locationPath,
+    proxyPassPath,
+    upstreamPath: proxyPassPath,
     resolveDns,
     dnsRecord,
-    preservePath: route.preservePath !== false,
+    preservePath: proxyPassPath === '',
     headers: {
       forwardClientHeaders: route?.headers?.forwardClientHeaders !== false,
       set: normalizeHeadersMap(route?.headers?.set),
@@ -322,6 +348,12 @@ function validateRoute(route, index, runtime) {
   }
   if (!Number.isInteger(Number(route.upstreamTimeoutMs)) || Number(route.upstreamTimeoutMs) < MIN_UPSTREAM_TIMEOUT_MS || Number(route.upstreamTimeoutMs) > MAX_UPSTREAM_TIMEOUT_MS) {
     throw new Error(`${label} upstream timeout 必须在 ${MIN_UPSTREAM_TIMEOUT_MS}-${MAX_UPSTREAM_TIMEOUT_MS}ms`);
+  }
+  if (!route.locationPath || !route.locationPath.startsWith('/') || /[?#]/.test(route.locationPath)) {
+    throw new Error(`${label} location path 必须以 / 开头，且不能包含 ? 或 #`);
+  }
+  if (route.proxyPassPath && (!route.proxyPassPath.startsWith('/') || /[?#]/.test(route.proxyPassPath))) {
+    throw new Error(`${label} proxy pass URI 必须留空或以 / 开头，且不能包含 ? 或 #`);
   }
   if (!['auto', 'A', 'AAAA'].includes(route.dnsRecord)) throw new Error(`${label} DNS 记录类型无效`);
   for (const [headerName, headerValue] of Object.entries(route.headers.set)) {
@@ -379,14 +411,28 @@ function getRouteHost(route, runtime) {
   return route.hostname || `${route.subdomain}.${runtime.mainDomain}`;
 }
 
-function findRouteForHost(config, hostInfo) {
-  if (hostInfo.kind !== 'proxy') return null;
+function routeMatchesHost(route, hostInfo) {
   const host = normalizeHostname(hostInfo.host);
-  return config.routes.find(route => {
-    if (!route.enabled) return false;
-    if (route.hostname && normalizeHostname(route.hostname) === host) return true;
-    return normalizeHostname(route.subdomain) === normalizeHostname(hostInfo.subdomain);
-  }) || null;
+  if (route.hostname && normalizeHostname(route.hostname) === host) return true;
+  return normalizeHostname(route.subdomain) === normalizeHostname(hostInfo.subdomain);
+}
+
+function routeMatchesPath(route, requestPath = '/') {
+  const path = normalizeLocationPath(requestPath || '/');
+  const locationPath = normalizeLocationPath(route.locationPath || '/');
+  return locationPath === '/' || path.startsWith(locationPath);
+}
+
+function findRouteForRequest(config, hostInfo, requestPath = '/') {
+  if (hostInfo.kind !== 'proxy') return null;
+  const candidates = config.routes
+    .filter(route => route.enabled && routeMatchesHost(route, hostInfo) && routeMatchesPath(route, requestPath))
+    .sort((a, b) => normalizeLocationPath(b.locationPath || '/').length - normalizeLocationPath(a.locationPath || '/').length);
+  return candidates[0] || null;
+}
+
+function findRouteForHost(config, hostInfo) {
+  return findRouteForRequest(config, hostInfo, '/');
 }
 
 function parseCookies(cookieHeader) {
@@ -479,33 +525,34 @@ function renderLoginPage(runtime, error = '') {
 function renderRouteCard(route, index, runtime) {
   const origin = routeOrigin(route);
   const transportLabel = route.transport === 'tcp' ? 'TCP' : 'Fetch';
+  const proxyPassLabel = route.proxyPassPath === '' ? '(no URI)' : route.proxyPassPath;
   const tcpWarning = route.transport === 'tcp' && isStandardHttpTransport(route)
     ? '<div class="route-warning">当前规则使用 TCP Socket 连接标准 HTTP/HTTPS 端口。Cloudflare Workers 对这类上游通常要求使用 Fetch；如访问返回 Bad Gateway，请将 Transport 切换为 Fetch。</div>'
     : '';
-  return `<article class="route-card">
-    <div class="route-head"><div><strong>${escapeHtml(route.name)}</strong><small>${escapeHtml(getRouteHost(route, runtime))} → ${escapeHtml(origin)}</small><div class="meta-row"><span>${escapeHtml(transportLabel)}</span><span>${escapeHtml(route.scheme.toUpperCase())}</span><span>${escapeHtml(route.upstreamHost)}:${escapeHtml(route.upstreamPort)}</span></div></div><span class="pill ${route.enabled ? 'ok' : 'off'}">${route.enabled ? 'Active' : 'Disabled'}</span></div>
+  return `<article class="route-card" data-route-index="${index}">
+    <div class="route-head"><div><strong>${escapeHtml(route.name)}</strong><small>${escapeHtml(getRouteHost(route, runtime))}${escapeHtml(route.locationPath)} → ${escapeHtml(origin)}${escapeHtml(route.proxyPassPath)}</small><div class="meta-row"><span>${escapeHtml(transportLabel)}</span><span>${escapeHtml(route.scheme.toUpperCase())}</span><span>location ${escapeHtml(route.locationPath)}</span><span>proxy URI ${escapeHtml(proxyPassLabel)}</span></div></div><div class="route-status"><span class="pill ${route.enabled ? 'ok' : 'off'}">${route.enabled ? 'Active' : 'Disabled'}</span><span class="health-pill pending" data-health-index="${index}">Checking</span></div></div>
     <div class="grid primary-grid">
       <label><span>Name</span><input name="route_${index}_name" value="${escapeHtml(route.name)}"></label>
       <label><span>Subdomain</span><input name="route_${index}_subdomain" value="${escapeHtml(route.subdomain)}"></label>
+      <label><span>Location Path</span><input name="route_${index}_locationPath" value="${escapeHtml(route.locationPath)}" placeholder="/api/"></label>
       <label><span>Transport</span><select name="route_${index}_transport"><option value="fetch" ${route.transport === 'fetch' ? 'selected' : ''}>Fetch</option><option value="tcp" ${route.transport === 'tcp' ? 'selected' : ''}>TCP Socket</option></select></label>
       <label><span>Scheme</span><select name="route_${index}_scheme"><option value="http" ${route.scheme === 'http' ? 'selected' : ''}>HTTP</option><option value="https" ${route.scheme === 'https' ? 'selected' : ''}>HTTPS</option></select></label>
       <label class="span-2"><span>Upstream Host / IP</span><input name="route_${index}_upstreamHost" value="${escapeHtml(route.upstreamHost)}" placeholder="github.com"></label>
       <label><span>Port</span><input name="route_${index}_upstreamPort" type="number" min="1" max="65535" value="${escapeHtml(route.upstreamPort)}"></label>
       <label class="switch"><span>Enabled</span><input name="route_${index}_enabled" type="checkbox" ${route.enabled ? 'checked' : ''}></label>
-      <label class="switch"><span>Preserve Path</span><input name="route_${index}_preservePath" type="checkbox" ${route.preservePath ? 'checked' : ''}></label>
     </div>
     ${tcpWarning}
-    <details class="advanced"><summary><span>高级设置</span><b>ID · Timeout · DNS · Headers</b></summary><div class="grid advanced-grid"><label><span>Route ID</span><input name="route_${index}_id" value="${escapeHtml(route.id)}"></label><label><span>Base Path</span><input name="route_${index}_upstreamPath" value="${escapeHtml(route.upstreamPath)}" placeholder="/optional-base"></label><label><span>Timeout (ms)</span><input name="route_${index}_upstreamTimeoutMs" type="number" min="${MIN_UPSTREAM_TIMEOUT_MS}" max="${MAX_UPSTREAM_TIMEOUT_MS}" step="1000" value="${escapeHtml(route.upstreamTimeoutMs)}"></label><label><span>DNS Record</span><select name="route_${index}_dnsRecord"><option value="auto" ${route.dnsRecord === 'auto' ? 'selected' : ''}>AUTO</option><option value="A" ${route.dnsRecord === 'A' ? 'selected' : ''}>A</option><option value="AAAA" ${route.dnsRecord === 'AAAA' ? 'selected' : ''}>AAAA</option></select></label><label class="switch"><span>Resolve DNS</span><input name="route_${index}_resolveDns" type="checkbox" ${route.resolveDns ? 'checked' : ''}></label><label class="switch"><span>Forward Headers</span><input name="route_${index}_forwardClientHeaders" type="checkbox" ${route.headers.forwardClientHeaders ? 'checked' : ''}></label></div><div class="grid two"><label><span>Set Headers</span><textarea name="route_${index}_headersSet" placeholder="Host: github.com\nX-Proxy: edge">${escapeHtml(headerSetToText(route.headers.set))}</textarea></label><label><span>Remove Headers</span><textarea name="route_${index}_headersRemove" placeholder="Cookie\nAuthorization">${escapeHtml(headerRemoveToText(route.headers.remove))}</textarea></label></div></details>
+    <details class="advanced"><summary><span>高级设置</span><b>Nginx Path · ID · Timeout · DNS · Headers</b></summary><div class="grid advanced-grid"><label><span>Route ID</span><input name="route_${index}_id" value="${escapeHtml(route.id)}"></label><label><span>Proxy Pass URI</span><input name="route_${index}_proxyPassPath" value="${escapeHtml(route.proxyPassPath)}" placeholder="blank, /, /v1/"></label><label><span>Timeout (ms)</span><input name="route_${index}_upstreamTimeoutMs" type="number" min="${MIN_UPSTREAM_TIMEOUT_MS}" max="${MAX_UPSTREAM_TIMEOUT_MS}" step="1000" value="${escapeHtml(route.upstreamTimeoutMs)}"></label><label><span>DNS Record</span><select name="route_${index}_dnsRecord"><option value="auto" ${route.dnsRecord === 'auto' ? 'selected' : ''}>AUTO</option><option value="A" ${route.dnsRecord === 'A' ? 'selected' : ''}>A</option><option value="AAAA" ${route.dnsRecord === 'AAAA' ? 'selected' : ''}>AAAA</option></select></label><label class="switch"><span>Resolve DNS</span><input name="route_${index}_resolveDns" type="checkbox" ${route.resolveDns ? 'checked' : ''}></label><label class="switch"><span>Forward Headers</span><input name="route_${index}_forwardClientHeaders" type="checkbox" ${route.headers.forwardClientHeaders ? 'checked' : ''}></label></div><div class="path-help">Nginx style: URI 留空会保留完整路径；填 <code>/</code> 会去掉 Location Path 后再拼接；例如 location <code>/api/</code> + URI <code>/</code> 会把 <code>/api/user</code> 转发为 <code>/user</code>。</div><div class="grid two"><label><span>Set Headers</span><textarea name="route_${index}_headersSet" placeholder="Host: github.com\nX-Proxy: edge">${escapeHtml(headerSetToText(route.headers.set))}</textarea></label><label><span>Remove Headers</span><textarea name="route_${index}_headersRemove" placeholder="Cookie\nAuthorization">${escapeHtml(headerRemoveToText(route.headers.remove))}</textarea></label></div></details>
     <div class="actions"><button name="_action" value="moveUp:${index}" class="btn ghost">上移</button><button name="_action" value="moveDown:${index}" class="btn ghost">下移</button><button name="_action" value="delete:${index}" class="btn danger">删除</button></div>
   </article>`;
 }
-
 
 function renderAdminScript() {
   return `<script>
 (() => {
   if (window.__proxyConsoleAsync) return;
   window.__proxyConsoleAsync = true;
+  let healthTimer = null;
   function swapPage(html) {
     const doc = new DOMParser().parseFromString(html, 'text/html');
     const nextRoot = doc.querySelector('[data-console-root]');
@@ -514,9 +561,11 @@ function renderAdminScript() {
     if (nextRoot && currentRoot) {
       currentRoot.replaceWith(nextRoot);
       window.scrollTo(0, y);
+      queueMicrotask(refreshHealth);
       return;
     }
     if (doc.body) document.body.replaceWith(doc.body);
+    queueMicrotask(refreshHealth);
   }
   function showToast(message, type = 'ok') {
     const old = document.querySelector('.toast');
@@ -534,6 +583,60 @@ function renderAdminScript() {
     });
     form.classList.toggle('is-busy', busy);
   }
+  function setHealthSummary(text, state = 'pending') {
+    const summary = document.querySelector('[data-health-summary]');
+    if (!summary) return;
+    summary.className = 'health-strip ' + state;
+    summary.textContent = text;
+  }
+  function setHealthButtonBusy(busy) {
+    document.querySelectorAll('[data-health-refresh]').forEach(button => {
+      button.disabled = busy;
+      button.textContent = busy ? '检测中…' : '刷新健康状态';
+    });
+  }
+  function applyHealth(results) {
+    const counts = { online: 0, degraded: 0, down: 0, disabled: 0 };
+    for (const item of results || []) {
+      counts[item.state] = (counts[item.state] || 0) + 1;
+      document.querySelectorAll('[data-health-index]').forEach(el => {
+        if (Number(el.dataset.healthIndex) !== Number(item.index)) return;
+        el.className = 'health-pill ' + item.state;
+        const latency = item.latencyMs === null || item.latencyMs === undefined ? '' : ' · ' + item.latencyMs + 'ms';
+        const code = item.statusCode ? 'HTTP ' + item.statusCode : item.transport.toUpperCase();
+        const label = item.state === 'online' ? 'Online' : item.state === 'degraded' ? 'Degraded' : item.state === 'disabled' ? 'Disabled' : 'Down';
+        el.textContent = label + (item.state === 'disabled' ? '' : ' · ' + code + latency);
+        el.title = item.error || item.upstreamUrl || '';
+      });
+    }
+    const total = (results || []).length;
+    const state = counts.down ? 'down' : counts.degraded ? 'degraded' : total ? 'online' : 'pending';
+    setHealthSummary('Upstream Health · Online ' + counts.online + ' · Degraded ' + counts.degraded + ' · Down ' + counts.down + ' · Disabled ' + counts.disabled, state);
+  }
+  async function refreshHealth() {
+    const root = document.querySelector('[data-console-root]');
+    if (!root) return;
+    window.clearTimeout(healthTimer);
+    setHealthSummary('Upstream Health · checking saved routes…', 'pending');
+    setHealthButtonBusy(true);
+    try {
+      const response = await fetch('/api/health', { headers: { 'Accept': 'application/json', 'X-Requested-With': 'fetch' } });
+      const payload = await response.json();
+      if (!payload.ok) throw new Error(payload.error || 'health check failed');
+      applyHealth(payload.results || []);
+    } catch (error) {
+      setHealthSummary('Upstream Health · check failed', 'down');
+      showToast('健康检查失败：' + (error && error.message ? error.message : error), 'err');
+    } finally {
+      setHealthButtonBusy(false);
+    }
+  }
+  document.addEventListener('click', event => {
+    const button = event.target.closest('[data-health-refresh]');
+    if (!button) return;
+    event.preventDefault();
+    refreshHealth();
+  });
   document.addEventListener('submit', async event => {
     const form = event.target;
     if (!(form instanceof HTMLFormElement)) return;
@@ -573,6 +676,8 @@ function renderAdminScript() {
       }
     }
   });
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', refreshHealth, { once: true });
+  else healthTimer = window.setTimeout(refreshHealth, 80);
 })();
 </script>`;
 }
@@ -583,12 +688,12 @@ function renderAdminConsole(config, runtime, options = {}) {
   const previewJson = options.preview ? JSON.stringify(options.preview, null, 2) : 'Ready';
   return `<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Proxy Console</title><style>
-:root{--bg:#f5f7fb;--card:rgba(255,255,255,.88);--ink:#0f172a;--muted:#64748b;--line:#e5edf6;--line-strong:#cbd8ea;--brand:#2563eb;--brand2:#7c3aed;--danger:#e11d48;--ok:#16a34a;--shadow:0 28px 90px rgba(15,23,42,.12);--soft:0 12px 30px rgba(37,99,235,.14);--ring:0 0 0 4px rgba(37,99,235,.13)}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 8% 0,rgba(59,130,246,.10),transparent 30%),linear-gradient(180deg,#f8fbff,#eef4fb);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);-webkit-font-smoothing:antialiased}.hero{position:relative;overflow:hidden;background:radial-gradient(circle at 12% 20%,rgba(14,165,233,.36),transparent 28%),radial-gradient(circle at 86% 8%,rgba(124,58,237,.30),transparent 28%),linear-gradient(135deg,#06111f,#101827 48%,#1e1b4b);color:#fff;padding:30px 22px 96px}.hero:after{content:"";position:absolute;inset:auto -15% -42% -15%;height:260px;background:radial-gradient(circle,rgba(255,255,255,.13),transparent 62%);pointer-events:none}.shell{max-width:1240px;margin:0 auto;position:relative}.nav{display:flex;justify-content:space-between;align-items:center;gap:16px}.nav-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.brand{display:flex;align-items:center;gap:12px;font-weight:900;letter-spacing:-.02em}.logo{width:44px;height:44px;border-radius:16px;background:linear-gradient(135deg,#38bdf8,#8b5cf6);display:grid;place-items:center;box-shadow:0 18px 42px rgba(56,189,248,.28)}.nav a{color:#dbeafe;text-decoration:none;font-weight:850;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.08);padding:10px 14px;border-radius:999px;transition:.18s ease}.nav a:hover{background:rgba(255,255,255,.14);transform:translateY(-1px)}.hero-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:28px;margin-top:38px;align-items:end}.eyebrow{color:#bfdbfe;font-size:12px;font-weight:900;letter-spacing:.18em;text-transform:uppercase}h1{font-size:clamp(38px,6vw,66px);line-height:.94;margin:12px 0 14px;letter-spacing:-.065em}.hero p{color:#cbd5e1;margin:0}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.stat{background:linear-gradient(180deg,rgba(255,255,255,.14),rgba(255,255,255,.08));border:1px solid rgba(255,255,255,.16);border-radius:22px;padding:18px;backdrop-filter:blur(18px);box-shadow:inset 0 1px 0 rgba(255,255,255,.10)}.stat strong{font-size:31px;display:block;letter-spacing:-.05em}.stat span{color:#cbd5e1;font-size:13px;font-weight:750}main.shell{margin-top:-66px;padding:0 22px 48px}.panel{background:var(--card);border:1px solid rgba(226,232,240,.86);border-radius:30px;box-shadow:var(--shadow);overflow:hidden;backdrop-filter:blur(18px)}.panel+.panel{margin-top:18px}.subgrid>.panel{margin-top:0}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:23px 25px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(248,250,252,.9))}.panel-title h2{margin:0;font-size:22px;letter-spacing:-.035em}.panel-title p{margin:6px 0 0;color:var(--muted);font-size:14px;font-weight:650}.panel-body{padding:23px 25px}.toolbar,.actions,.save-bar{display:flex;gap:10px;flex-wrap:wrap}.btn{appearance:none;border:0;border-radius:15px;padding:11px 16px;background:linear-gradient(135deg,#2563eb,#4f46e5);color:#fff;font-weight:900;cursor:pointer;text-decoration:none;box-shadow:var(--soft);transition:transform .16s ease,box-shadow .16s ease,filter .16s ease,opacity .16s ease;letter-spacing:-.01em}.btn:hover{transform:translateY(-1px);box-shadow:0 16px 34px rgba(37,99,235,.20);filter:saturate(1.08)}.btn:active{transform:translateY(0);box-shadow:0 8px 18px rgba(37,99,235,.14)}.btn:disabled,.is-busy .btn{cursor:wait;opacity:.62;transform:none}.btn.secondary{background:#0f172a;box-shadow:0 12px 26px rgba(15,23,42,.16)}.btn.ghost{background:#fff;color:#334155;border:1px solid #dbe6f4;box-shadow:0 8px 20px rgba(15,23,42,.06)}.btn.danger{background:linear-gradient(135deg,#f43f5e,#dc2626);box-shadow:0 12px 26px rgba(225,29,72,.16)}.notice{margin-bottom:16px;padding:13px 15px;border-radius:18px;font-weight:800;border:1px solid transparent}.notice.ok{background:#ecfdf5;color:#166534;border-color:#bbf7d0}.notice.err{background:#fff1f2;color:#9f1239;border-color:#fecdd3}.notice.warn{background:#fffbeb;color:#92400e;border-color:#fde68a}.top-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px}.top-grid.compact{grid-template-columns:minmax(180px,260px);margin-bottom:20px}.field span,label span{display:block;font-size:11px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#475569;margin-bottom:8px}.route-card label:not(.switch),.top-grid label,.subgrid label{display:block}.route-card input,.route-card select,.route-card textarea,.top-grid input,.top-grid select,.subgrid input,.subgrid select,.subgrid textarea{width:100%;border:1px solid #dbe6f3;border-radius:16px;padding:12px 13px;background:linear-gradient(180deg,#fff,#fbfdff);color:var(--ink);font:inherit;outline:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 1px 2px rgba(15,23,42,.02);transition:border-color .16s ease,box-shadow .16s ease,background .16s ease}.route-card input:hover,.route-card select:hover,.route-card textarea:hover,.top-grid input:hover,.top-grid select:hover,.subgrid input:hover,.subgrid textarea:hover{border-color:#b9c8dc}.route-card input:focus,.route-card select:focus,.route-card textarea:focus,.top-grid input:focus,.top-grid select:focus,.subgrid input:focus,.subgrid textarea:focus{border-color:#60a5fa;box-shadow:var(--ring),inset 0 1px 0 rgba(255,255,255,.9);background:#fff}input[readonly]{color:#64748b;background:#f8fafc}textarea{min-height:106px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;line-height:1.55}.route-list{display:grid;gap:18px}.route-card{position:relative;border:1px solid #dbeafe;border-radius:26px;padding:20px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,251,255,.94));box-shadow:0 14px 38px rgba(30,64,175,.07);transition:border-color .16s ease,box-shadow .16s ease,transform .16s ease}.route-card:hover{border-color:#bfdbfe;box-shadow:0 18px 46px rgba(30,64,175,.10);transform:translateY(-1px)}.route-card:before{content:"";position:absolute;left:20px;right:20px;top:0;height:1px;background:linear-gradient(90deg,transparent,rgba(59,130,246,.38),transparent)}.route-head{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:18px}.route-head strong{display:block;font-size:18px;letter-spacing:-.03em}.route-head small{display:block;color:var(--muted);margin-top:5px;font-weight:650}.meta-row{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.meta-row span{display:inline-flex;margin:0;padding:5px 8px;border-radius:999px;background:#eef6ff;color:#1e40af;border:1px solid #dbeafe;font-size:11px;font-weight:900;letter-spacing:.02em;text-transform:none}.pill{border-radius:999px;padding:8px 11px;font-size:12px;font-weight:900;border:1px solid transparent}.pill.ok{background:#dcfce7;color:#166534;border-color:#bbf7d0}.pill.off{background:#fee2e2;color:#991b1b;border-color:#fecaca}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:15px}.primary-grid{align-items:end}.advanced-grid{margin-top:15px}.span-2{grid-column:span 2}.grid.two{grid-template-columns:1fr 1fr;margin-top:15px}.route-warning{margin-top:15px;border:1px solid #fde68a;background:#fffbeb;color:#92400e;border-radius:16px;padding:12px 14px;font-size:13px;font-weight:800;line-height:1.55}.advanced{margin-top:16px;border:1px solid #dbeafe;border-radius:20px;background:rgba(248,251,255,.72);overflow:hidden}.advanced summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 16px;cursor:pointer;font-weight:900;color:#1e293b}.advanced summary::-webkit-details-marker{display:none}.advanced summary:after{content:"⌄";color:#64748b;transition:.16s ease}.advanced[open] summary:after{transform:rotate(180deg)}.advanced summary b{font-size:12px;color:#64748b;font-weight:800}.advanced>div{padding:0 16px 16px}.switch{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid #dbe6f3;border-radius:18px;padding:12px 13px;background:linear-gradient(180deg,#fff,#f8fbff);min-height:68px}.switch input{appearance:none;width:42px;height:24px;border-radius:999px;border:1px solid #cbd5e1;background:#cbd5e1;position:relative;cursor:pointer;transition:.18s ease;flex:0 0 auto}.switch input:before{content:"";position:absolute;width:18px;height:18px;border-radius:50%;left:2px;top:2px;background:#fff;box-shadow:0 2px 6px rgba(15,23,42,.22);transition:.18s ease}.switch input:checked{background:linear-gradient(135deg,#2563eb,#7c3aed);border-color:#2563eb}.switch input:checked:before{transform:translateX(18px)}.actions{margin-top:16px;justify-content:flex-end}.save-bar{margin-top:18px;justify-content:flex-end;padding-top:16px;border-top:1px solid var(--line)}.empty{border:1px dashed #cbd5e1;border-radius:22px;padding:30px;text-align:center;color:var(--muted);background:rgba(248,250,252,.74);font-weight:750}.subgrid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}.code{background:linear-gradient(180deg,#0f172a,#111827);color:#dbeafe;border:1px solid rgba(148,163,184,.18);border-radius:20px;padding:17px;min-height:150px;white-space:pre-wrap;word-break:break-word;overflow:auto;box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}.console-footer{margin:20px 0 0;padding:18px 4px;text-align:center;color:#64748b;font-size:13px;font-weight:750}.console-footer a{color:#2563eb;text-decoration:none;font-weight:900}.console-footer a:hover{text-decoration:underline}.tcp-badge{display:inline-flex;gap:8px;align-items:center;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.1);border-radius:999px;padding:8px 12px;color:#dbeafe;font-weight:850;font-size:13px;backdrop-filter:blur(14px)}.toast{position:fixed;right:22px;bottom:22px;z-index:30;max-width:min(420px,calc(100vw - 44px));border-radius:16px;padding:13px 16px;font-weight:900;box-shadow:0 18px 42px rgba(15,23,42,.18);animation:toast-in .18s ease}.toast.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0}.toast.err{background:#fff1f2;color:#9f1239;border:1px solid #fecdd3}@keyframes toast-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}@media(max-width:980px){.hero-grid,.stats,.top-grid,.top-grid.compact,.subgrid,.grid,.grid.two{grid-template-columns:1fr}.span-2{grid-column:span 1}.panel-head,.route-head{align-items:flex-start;flex-direction:column}.actions,.save-bar{justify-content:flex-start}}
+:root{--bg:#f5f7fb;--card:rgba(255,255,255,.88);--ink:#0f172a;--muted:#64748b;--line:#e5edf6;--line-strong:#cbd8ea;--brand:#2563eb;--brand2:#7c3aed;--danger:#e11d48;--ok:#16a34a;--shadow:0 28px 90px rgba(15,23,42,.12);--soft:0 12px 30px rgba(37,99,235,.14);--ring:0 0 0 4px rgba(37,99,235,.13)}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 8% 0,rgba(59,130,246,.10),transparent 30%),linear-gradient(180deg,#f8fbff,#eef4fb);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);-webkit-font-smoothing:antialiased}.hero{position:relative;overflow:hidden;background:radial-gradient(circle at 12% 20%,rgba(14,165,233,.36),transparent 28%),radial-gradient(circle at 86% 8%,rgba(124,58,237,.30),transparent 28%),linear-gradient(135deg,#06111f,#101827 48%,#1e1b4b);color:#fff;padding:30px 22px 96px}.hero:after{content:"";position:absolute;inset:auto -15% -42% -15%;height:260px;background:radial-gradient(circle,rgba(255,255,255,.13),transparent 62%);pointer-events:none}.shell{max-width:1240px;margin:0 auto;position:relative}.nav{display:flex;justify-content:space-between;align-items:center;gap:16px}.nav-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.brand{display:flex;align-items:center;gap:12px;font-weight:900;letter-spacing:-.02em}.logo{width:44px;height:44px;border-radius:16px;background:linear-gradient(135deg,#38bdf8,#8b5cf6);display:grid;place-items:center;box-shadow:0 18px 42px rgba(56,189,248,.28)}.nav a{color:#dbeafe;text-decoration:none;font-weight:850;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.08);padding:10px 14px;border-radius:999px;transition:.18s ease}.nav a:hover{background:rgba(255,255,255,.14);transform:translateY(-1px)}.hero-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:28px;margin-top:38px;align-items:end}.eyebrow{color:#bfdbfe;font-size:12px;font-weight:900;letter-spacing:.18em;text-transform:uppercase}h1{font-size:clamp(38px,6vw,66px);line-height:.94;margin:12px 0 14px;letter-spacing:-.065em}.hero p{color:#cbd5e1;margin:0}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.stat{background:linear-gradient(180deg,rgba(255,255,255,.14),rgba(255,255,255,.08));border:1px solid rgba(255,255,255,.16);border-radius:22px;padding:18px;backdrop-filter:blur(18px);box-shadow:inset 0 1px 0 rgba(255,255,255,.10)}.stat strong{font-size:31px;display:block;letter-spacing:-.05em}.stat span{color:#cbd5e1;font-size:13px;font-weight:750}main.shell{margin-top:-66px;padding:0 22px 48px}.panel{background:var(--card);border:1px solid rgba(226,232,240,.86);border-radius:30px;box-shadow:var(--shadow);overflow:hidden;backdrop-filter:blur(18px)}.panel+.panel{margin-top:18px}.subgrid>.panel{margin-top:0}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:23px 25px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(248,250,252,.9))}.panel-title h2{margin:0;font-size:22px;letter-spacing:-.035em}.panel-title p{margin:6px 0 0;color:var(--muted);font-size:14px;font-weight:650}.panel-body{padding:23px 25px}.toolbar,.actions,.save-bar{display:flex;gap:10px;flex-wrap:wrap}.toolbar{align-items:center}.btn{appearance:none;border:0;border-radius:15px;padding:11px 16px;background:linear-gradient(135deg,#2563eb,#4f46e5);color:#fff;font-weight:900;cursor:pointer;text-decoration:none;box-shadow:var(--soft);transition:transform .16s ease,box-shadow .16s ease,filter .16s ease,opacity .16s ease;letter-spacing:-.01em}.btn:hover{transform:translateY(-1px);box-shadow:0 16px 34px rgba(37,99,235,.20);filter:saturate(1.08)}.btn:active{transform:translateY(0);box-shadow:0 8px 18px rgba(37,99,235,.14)}.btn:disabled,.is-busy .btn{cursor:wait;opacity:.62;transform:none}.btn.secondary{background:#0f172a;box-shadow:0 12px 26px rgba(15,23,42,.16)}.btn.ghost{background:#fff;color:#334155;border:1px solid #dbe6f4;box-shadow:0 8px 20px rgba(15,23,42,.06)}.btn.danger{background:linear-gradient(135deg,#f43f5e,#dc2626);box-shadow:0 12px 26px rgba(225,29,72,.16)}.notice{margin-bottom:16px;padding:13px 15px;border-radius:18px;font-weight:800;border:1px solid transparent}.notice.ok{background:#ecfdf5;color:#166534;border-color:#bbf7d0}.notice.err{background:#fff1f2;color:#9f1239;border-color:#fecdd3}.notice.warn{background:#fffbeb;color:#92400e;border-color:#fde68a}.top-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px}.top-grid.compact{grid-template-columns:minmax(180px,260px);margin-bottom:20px}.field span,label span{display:block;font-size:11px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#475569;margin-bottom:8px}.route-card label:not(.switch),.top-grid label,.subgrid label{display:block}.route-card input,.route-card select,.route-card textarea,.top-grid input,.top-grid select,.subgrid input,.subgrid select,.subgrid textarea{width:100%;border:1px solid #dbe6f3;border-radius:16px;padding:12px 13px;background:linear-gradient(180deg,#fff,#fbfdff);color:var(--ink);font:inherit;outline:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 1px 2px rgba(15,23,42,.02);transition:border-color .16s ease,box-shadow .16s ease,background .16s ease}.route-card input:hover,.route-card select:hover,.route-card textarea:hover,.top-grid input:hover,.top-grid select:hover,.subgrid input:hover,.subgrid textarea:hover{border-color:#b9c8dc}.route-card input:focus,.route-card select:focus,.route-card textarea:focus,.top-grid input:focus,.top-grid select:focus,.subgrid input:focus,.subgrid textarea:focus{border-color:#60a5fa;box-shadow:var(--ring),inset 0 1px 0 rgba(255,255,255,.9);background:#fff}input[readonly]{color:#64748b;background:#f8fafc}textarea{min-height:106px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;line-height:1.55}.route-list{display:grid;gap:18px}.route-card{position:relative;border:1px solid #dbeafe;border-radius:26px;padding:20px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,251,255,.94));box-shadow:0 14px 38px rgba(30,64,175,.07);transition:border-color .16s ease,box-shadow .16s ease,transform .16s ease}.route-card:hover{border-color:#bfdbfe;box-shadow:0 18px 46px rgba(30,64,175,.10);transform:translateY(-1px)}.route-card:before{content:"";position:absolute;left:20px;right:20px;top:0;height:1px;background:linear-gradient(90deg,transparent,rgba(59,130,246,.38),transparent)}.route-head{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:18px}.route-head strong{display:block;font-size:18px;letter-spacing:-.03em}.route-head small{display:block;color:var(--muted);margin-top:5px;font-weight:650}.meta-row{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.meta-row span{display:inline-flex;margin:0;padding:5px 8px;border-radius:999px;background:#eef6ff;color:#1e40af;border:1px solid #dbeafe;font-size:11px;font-weight:900;letter-spacing:.02em;text-transform:none}.pill{border-radius:999px;padding:8px 11px;font-size:12px;font-weight:900;border:1px solid transparent}.pill.ok{background:#dcfce7;color:#166534;border-color:#bbf7d0}.pill.off{background:#fee2e2;color:#991b1b;border-color:#fecaca}.route-status{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}.health-pill{display:inline-flex;align-items:center;border-radius:999px;padding:8px 11px;font-size:12px;font-weight:950;border:1px solid transparent;white-space:nowrap}.health-pill.pending{background:#f1f5f9;color:#475569;border-color:#dbe6f3}.health-pill.online{background:#dcfce7;color:#166534;border-color:#bbf7d0}.health-pill.degraded{background:#fef3c7;color:#92400e;border-color:#fde68a}.health-pill.down{background:#fee2e2;color:#991b1b;border-color:#fecaca}.health-pill.disabled{background:#f1f5f9;color:#64748b;border-color:#e2e8f0}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:15px}.primary-grid{align-items:end}.advanced-grid{margin-top:15px}.span-2{grid-column:span 2}.grid.two{grid-template-columns:1fr 1fr;margin-top:15px}.route-warning{margin-top:15px;border:1px solid #fde68a;background:#fffbeb;color:#92400e;border-radius:16px;padding:12px 14px;font-size:13px;font-weight:800;line-height:1.55}.path-help{margin:14px 16px 0;padding:12px 14px;border:1px solid #dbeafe;background:#f8fbff;border-radius:16px;color:#475569;font-size:13px;font-weight:750;line-height:1.6}.path-help code{background:#eaf2ff;color:#1e40af;border-radius:7px;padding:2px 6px}.advanced{margin-top:16px;border:1px solid #dbeafe;border-radius:20px;background:rgba(248,251,255,.72);overflow:hidden}.advanced summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 16px;cursor:pointer;font-weight:900;color:#1e293b}.advanced summary::-webkit-details-marker{display:none}.advanced summary:after{content:"⌄";color:#64748b;transition:.16s ease}.advanced[open] summary:after{transform:rotate(180deg)}.advanced summary b{font-size:12px;color:#64748b;font-weight:800}.advanced>div{padding:0 16px 16px}.switch{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid #dbe6f3;border-radius:18px;padding:12px 13px;background:linear-gradient(180deg,#fff,#f8fbff);min-height:68px}.switch input{appearance:none;width:42px;height:24px;border-radius:999px;border:1px solid #cbd5e1;background:#cbd5e1;position:relative;cursor:pointer;transition:.18s ease;flex:0 0 auto}.switch input:before{content:"";position:absolute;width:18px;height:18px;border-radius:50%;left:2px;top:2px;background:#fff;box-shadow:0 2px 6px rgba(15,23,42,.22);transition:.18s ease}.switch input:checked{background:linear-gradient(135deg,#2563eb,#7c3aed);border-color:#2563eb}.switch input:checked:before{transform:translateX(18px)}.actions{margin-top:16px;justify-content:flex-end}.save-bar{margin-top:18px;justify-content:flex-end;padding-top:16px;border-top:1px solid var(--line)}.empty{border:1px dashed #cbd5e1;border-radius:22px;padding:30px;text-align:center;color:var(--muted);background:rgba(248,250,252,.74);font-weight:750}.health-strip{margin-bottom:16px;border:1px solid #dbeafe;background:linear-gradient(180deg,#f8fbff,#eef6ff);border-radius:18px;padding:13px 15px;color:#1e40af;font-weight:950}.health-strip.online{background:#ecfdf5;color:#166534;border-color:#bbf7d0}.health-strip.degraded{background:#fffbeb;color:#92400e;border-color:#fde68a}.health-strip.down{background:#fff1f2;color:#9f1239;border-color:#fecdd3}.health-strip.pending{background:#f8fafc;color:#475569;border-color:#e2e8f0}.subgrid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}.code{background:linear-gradient(180deg,#0f172a,#111827);color:#dbeafe;border:1px solid rgba(148,163,184,.18);border-radius:20px;padding:17px;min-height:150px;white-space:pre-wrap;word-break:break-word;overflow:auto;box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}.console-footer{margin:20px 0 0;padding:18px 4px;text-align:center;color:#64748b;font-size:13px;font-weight:750}.console-footer a{color:#2563eb;text-decoration:none;font-weight:900}.console-footer a:hover{text-decoration:underline}.tcp-badge{display:inline-flex;gap:8px;align-items:center;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.1);border-radius:999px;padding:8px 12px;color:#dbeafe;font-weight:850;font-size:13px;backdrop-filter:blur(14px)}.toast{position:fixed;right:22px;bottom:22px;z-index:30;max-width:min(420px,calc(100vw - 44px));border-radius:16px;padding:13px 16px;font-weight:900;box-shadow:0 18px 42px rgba(15,23,42,.18);animation:toast-in .18s ease}.toast.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0}.toast.err{background:#fff1f2;color:#9f1239;border:1px solid #fecdd3}@keyframes toast-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}@media(max-width:980px){.hero-grid,.stats,.top-grid,.top-grid.compact,.subgrid,.grid,.grid.two{grid-template-columns:1fr}.span-2{grid-column:span 1}.panel-head,.route-head{align-items:flex-start;flex-direction:column}.route-status{justify-content:flex-start}.actions,.save-bar{justify-content:flex-start}}
 </style></head><body><div id="consoleRoot" data-console-root>
 <section class="hero"><div class="shell"><div class="nav"><div class="brand"><div class="logo">↯</div><div>Proxy Console</div></div><div class="nav-actions"><a href="${escapeHtml(PROJECT_REPOSITORY_URL)}" target="_blank" rel="noopener noreferrer">GitHub</a><a href="/logout">退出</a></div></div><div class="hero-grid"><div><div class="eyebrow">HTTP Reverse Proxy</div><h1>Edge upstreams done right.</h1><p>${escapeHtml(runtime.mainDomain)} · admin: ${escapeHtml(runtime.adminHost)}</p><div style="margin-top:18px"><span class="tcp-badge">select fetch or tcp</span></div></div><div class="stats"><div class="stat"><strong>${routes.length}</strong><span>Routes</span></div><div class="stat"><strong>${routes.filter(route => route.enabled).length}</strong><span>Enabled</span></div><div class="stat"><strong>v4</strong><span>KV Schema</span></div></div></div></div></section>
 <main class="shell">
-  <div class="panel"><div class="panel-head"><div class="panel-title"><h2>Host Routes</h2><p>subdomain → upstream · explicit transport</p></div><div class="toolbar"><button form="routeForm" class="btn" name="_action" value="addRoute">新增 Route</button><button form="routeForm" class="btn secondary" name="_action" value="addGh">添加 GitHub</button></div></div><div class="panel-body">
-    ${options.saved ? '<div class="notice ok">配置已保存</div>' : ''}${options.error ? `<div class="notice err">${escapeHtml(options.error)}</div>` : ''}${options.kvBound ? '' : '<div class="notice warn">KV 未绑定，保存会失败</div>'}
+  <div class="panel"><div class="panel-head"><div class="panel-title"><h2>Host Routes</h2><p>subdomain → upstream · explicit transport</p></div><div class="toolbar"><button class="btn ghost" type="button" data-health-refresh>刷新健康状态</button><button form="routeForm" class="btn" name="_action" value="addRoute">新增 Route</button><button form="routeForm" class="btn secondary" name="_action" value="addGh">添加 GitHub</button></div></div><div class="panel-body">
+    ${options.saved ? '<div class="notice ok">配置已保存</div>' : ''}${options.error ? `<div class="notice err">${escapeHtml(options.error)}</div>` : ''}${options.kvBound ? '' : '<div class="notice warn">KV 未绑定，保存会失败</div>'}<div class="health-strip pending" data-health-summary>Upstream Health · pending</div>
     <form method="POST" action="/" id="routeForm"><div class="top-grid compact"><label class="field"><span>No Match</span><select name="noMatchStatus"><option value="404" ${normalized.global.noMatchStatus === 404 ? 'selected' : ''}>404</option><option value="403" ${normalized.global.noMatchStatus === 403 ? 'selected' : ''}>403</option></select></label></div><input type="hidden" name="routeCount" value="${routes.length}">${routes.length ? `<div class="route-list">${routes.map((route, index) => renderRouteCard(route, index, runtime)).join('')}</div>` : '<div class="empty">暂无 Host Route，添加一个 upstream 开始使用。</div>'}<div class="save-bar"><button class="btn" name="_action" value="save">保存配置</button></div></form>
   </div></div>
   <div class="subgrid"><section class="panel"><div class="panel-head"><div class="panel-title"><h2>Preview</h2><p>host + path → upstream request</p></div></div><div class="panel-body"><form method="GET" action="/" data-async-preview="1"><label><span>Host</span><input name="previewHost" value="${escapeHtml(options.previewHost || `gh.${runtime.mainDomain}`)}"></label><label style="margin-top:12px"><span>Path</span><input name="previewPath" value="${escapeHtml(options.previewPath || '/robots.txt')}"></label><button class="btn" style="margin-top:12px">预览</button></form><pre class="code" style="margin-top:14px">${escapeHtml(previewJson)}</pre></div></section><section class="panel"><div class="panel-head"><div class="panel-title"><h2>Presets</h2><p>production-ready examples</p></div></div><div class="panel-body"><pre class="code">${escapeHtml(JSON.stringify({ github: githubPresetRoute() }, null, 2))}</pre></div></section></div>
@@ -606,15 +711,15 @@ async function parseAdminConfigFromForm(request) {
       name: String(form.get(`route_${index}_name`) || `Route ${index + 1}`).trim(),
       enabled: form.get(`route_${index}_enabled`) === 'on',
       subdomain: String(form.get(`route_${index}_subdomain`) || '').trim(),
+      locationPath: String(form.get(`route_${index}_locationPath`) || '/').trim(),
       transport: String(form.get(`route_${index}_transport`) || 'fetch').trim(),
       scheme: String(form.get(`route_${index}_scheme`) || 'https').trim(),
       upstreamHost: String(form.get(`route_${index}_upstreamHost`) || '').trim(),
       upstreamPort: Number(form.get(`route_${index}_upstreamPort`) || 0),
       upstreamTimeoutMs: Number(form.get(`route_${index}_upstreamTimeoutMs`) || DEFAULT_UPSTREAM_TIMEOUT_MS),
-      upstreamPath: String(form.get(`route_${index}_upstreamPath`) || '').trim(),
+      proxyPassPath: String(form.get(`route_${index}_proxyPassPath`) || '').trim(),
       resolveDns: form.get(`route_${index}_resolveDns`) === 'on',
       dnsRecord: String(form.get(`route_${index}_dnsRecord`) || DEFAULT_DNS_RECORD).trim(),
-      preservePath: form.get(`route_${index}_preservePath`) === 'on',
       headers: {
         forwardClientHeaders: form.get(`route_${index}_forwardClientHeaders`) === 'on',
         set: parseHeaderSetText(form.get(`route_${index}_headersSet`)),
@@ -677,15 +782,24 @@ function renderConfigError(message) {
   return htmlResponse(`<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Configuration Required</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#020617;color:#e5e7eb;font-family:ui-sans-serif,system-ui}.card{max-width:620px;padding:34px;border:1px solid #7f1d1d;border-radius:24px;background:#1e0b0b}.muted{color:#fecaca}code{background:#450a0a;padding:2px 6px;border-radius:6px}</style></head><body><div class="card"><h1>Configuration required</h1><p class="muted">${escapeHtml(message)}</p><p>Set <code>MAIN_DOMAIN</code>, <code>ADMIN</code>, and bind KV before production use.</p></div></body></html>`, { status: 500 });
 }
 
-function joinPath(basePath, requestPath) {
-  const base = basePath && basePath !== '/' ? `/${String(basePath).replace(/^\/+|\/+$/g, '')}` : '';
-  const path = requestPath.startsWith('/') ? requestPath : `/${requestPath}`;
-  return `${base}${path}` || '/';
+function stripLocationPrefix(requestPath, locationPath) {
+  const path = normalizeLocationPath(requestPath || '/');
+  const location = normalizeLocationPath(locationPath || '/');
+  if (location === '/') return path.slice(1);
+  return path.startsWith(location) ? path.slice(location.length) : path.slice(1);
+}
+
+function buildNginxStyleProxyPath(requestPath, route) {
+  const path = normalizeLocationPath(requestPath || '/');
+  const proxyPassPath = normalizeProxyPassPath(route.proxyPassPath ?? '');
+  if (proxyPassPath === '') return path;
+  const rewritten = `${proxyPassPath}${stripLocationPrefix(path, route.locationPath || '/')}`;
+  return rewritten.startsWith('/') ? (rewritten || '/') : `/${rewritten}`;
 }
 
 function buildUpstreamPath(requestUrl, route) {
   const inbound = new URL(requestUrl);
-  const path = route.preservePath !== false ? joinPath(route.upstreamPath || '', inbound.pathname) : (route.upstreamPath || '/');
+  const path = buildNginxStyleProxyPath(inbound.pathname, route);
   return `${path || '/'}${inbound.search || ''}`;
 }
 
@@ -700,7 +814,7 @@ function buildPreview(previewHost, previewPath, config, runtime) {
   if (hostInfo.kind !== 'proxy') {
     return { ok: true, matched: false, host: hostInfo.host, kind: hostInfo.kind, message: 'not a proxy host' };
   }
-  const route = findRouteForHost(config, hostInfo);
+  const route = findRouteForRequest(config, hostInfo, request.url ? new URL(request.url).pathname : path);
   if (!route) {
     return { ok: true, matched: false, host: hostInfo.host, subdomain: hostInfo.subdomain, message: 'no host route matched' };
   }
@@ -718,6 +832,8 @@ function buildPreview(previewHost, previewPath, config, runtime) {
       upstreamHost: route.upstreamHost,
       upstreamPort: route.upstreamPort,
       upstreamTimeoutMs: route.upstreamTimeoutMs,
+      locationPath: route.locationPath,
+      proxyPassPath: route.proxyPassPath,
       effectiveHostHeader: routeHostHeader(route),
       resolveDns: route.resolveDns,
       dnsRecord: route.dnsRecord
@@ -734,6 +850,164 @@ function buildPreview(previewHost, previewPath, config, runtime) {
     upstreamUrl: buildUpstreamUrl(request.url, route)
   };
 }
+
+function healthTimeoutMs(route) {
+  return Math.max(1000, Math.min(DEFAULT_HEALTH_TIMEOUT_MS, normalizeUpstreamTimeoutMs(route.upstreamTimeoutMs || DEFAULT_UPSTREAM_TIMEOUT_MS)));
+}
+
+function healthRequestUrl(route, runtime) {
+  const path = normalizeLocationPath(route.locationPath || '/');
+  return `https://${getRouteHost(route, runtime)}${path}`;
+}
+
+function normalizeHealthError(error) {
+  return String(error?.message || error || 'unknown error').slice(0, 500);
+}
+
+function classifyHealthStatus(statusCode) {
+  if (!Number.isFinite(Number(statusCode))) return 'down';
+  return Number(statusCode) >= 500 ? 'degraded' : 'online';
+}
+
+async function checkFetchHealth(route, runtime) {
+  const url = healthRequestUrl(route, runtime);
+  const request = new Request(url, { method: 'HEAD' });
+  const headers = sanitizeRequestHeaders(request, route, 0, { transport: 'fetch' });
+  const controller = new AbortController();
+  const timeout = healthTimeoutMs(route);
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(buildUpstreamUrl(url, route), {
+      method: 'HEAD',
+      headers,
+      redirect: 'manual',
+      signal: controller.signal,
+      cf: { scrapeShield: false }
+    });
+    return {
+      statusCode: response.status,
+      statusText: response.statusText,
+      upstreamUrl: buildUpstreamUrl(url, route)
+    };
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new ProxyUpstreamError(`Fetch health check timed out after ${timeout}ms`, 504, 'HEALTH_TIMEOUT');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function checkTcpHealth(route, runtime) {
+  const url = healthRequestUrl(route, runtime);
+  const dnsTarget = await resolveDnsTarget(route);
+  const timeout = healthTimeoutMs(route);
+  const socket = connect(
+    { hostname: dnsTarget.connectHost, port: Number(route.upstreamPort) },
+    { secureTransport: route.scheme === 'https' ? 'on' : 'off' }
+  );
+  let reader = null;
+  try {
+    await withUpstreamTimeout(
+      socket.opened,
+      timeout,
+      `TCP health check connect timed out after ${timeout}ms`,
+      'HEALTH_CONNECT_TIMEOUT'
+    );
+    const writer = socket.writable.getWriter();
+    try {
+      const request = new Request(url, { method: 'HEAD' });
+      await withUpstreamTimeout(
+        writer.write(buildTcpHttpRequest(request, route, new Uint8Array())),
+        timeout,
+        `TCP health check write timed out after ${timeout}ms`,
+        'HEALTH_WRITE_TIMEOUT'
+      );
+    } finally {
+      try { writer.releaseLock(); } catch {}
+    }
+    reader = socket.readable.getReader();
+    const { headBytes } = await withUpstreamTimeout(
+      readResponseHead(reader),
+      timeout,
+      `TCP health check response timed out after ${timeout}ms`,
+      'HEALTH_HEADER_TIMEOUT'
+    );
+    const parsed = parseHttpResponseHead(headBytes);
+    return {
+      statusCode: parsed.status,
+      statusText: parsed.statusText,
+      upstreamUrl: buildUpstreamUrl(url, route),
+      connectHost: dnsTarget.connectHost,
+      dnsResolved: dnsTarget.resolved,
+      dnsFamily: dnsTarget.family || null
+    };
+  } finally {
+    if (reader) {
+      try { await reader.cancel(); } catch {}
+      try { reader.releaseLock(); } catch {}
+    }
+    try { socket.close(); } catch {}
+  }
+}
+
+async function checkRouteHealth(route, index, runtime) {
+  const started = Date.now();
+  const base = {
+    index,
+    id: route.id,
+    name: route.name,
+    enabled: route.enabled,
+    transport: route.transport,
+    upstream: routeOrigin(route),
+    locationPath: route.locationPath || '/',
+    checkedAt: new Date().toISOString()
+  };
+  if (!route.enabled) {
+    return { ...base, ok: false, state: 'disabled', statusCode: null, statusText: 'Disabled', latencyMs: null };
+  }
+  try {
+    const result = route.transport === 'tcp'
+      ? await checkTcpHealth(route, runtime)
+      : await checkFetchHealth(route, runtime);
+    const state = classifyHealthStatus(result.statusCode);
+    return {
+      ...base,
+      ...result,
+      ok: state === 'online',
+      state,
+      latencyMs: Date.now() - started
+    };
+  } catch (error) {
+    const normalizedError = route.transport === 'tcp' ? normalizeTcpProxyError(error, route) : error;
+    return {
+      ...base,
+      ok: false,
+      state: 'down',
+      statusCode: Number(normalizedError?.status || 0) || null,
+      statusText: normalizedError?.code || 'HEALTH_CHECK_FAILED',
+      latencyMs: Date.now() - started,
+      error: normalizeHealthError(normalizedError)
+    };
+  }
+}
+
+async function buildHealthReport(config, runtime) {
+  const normalized = normalizeConfig(config);
+  const results = await Promise.all(normalized.routes.map((route, index) => checkRouteHealth(route, index, runtime)));
+  const summary = results.reduce((acc, item) => {
+    acc[item.state] = (acc[item.state] || 0) + 1;
+    return acc;
+  }, { online: 0, degraded: 0, down: 0, disabled: 0 });
+  return {
+    ok: true,
+    checkedAt: new Date().toISOString(),
+    summary,
+    results
+  };
+}
+
 
 async function handleAdminRequest(request, env, runtime) {
   const url = new URL(request.url);
@@ -756,6 +1030,15 @@ async function handleAdminRequest(request, env, runtime) {
   if (!(await verifySession(request, env))) {
     if (request.method === 'GET') return htmlResponse(renderLoginPage(runtime));
     return jsonResponse({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  if (url.pathname === '/api/health') {
+    if (request.method !== 'GET') return new Response('Method Not Allowed\n', { status: 405 });
+    try {
+      return jsonResponse(await buildHealthReport(await getConfig(env), runtime));
+    } catch (error) {
+      return jsonResponse({ ok: false, error: error.message || String(error) }, { status: 500 });
+    }
   }
 
   if (url.pathname === '/api/config') {
@@ -1099,6 +1382,8 @@ function addProxyDiagnosticHeaders(headers, route, extra = {}) {
   headers.set('X-Proxy-Route-Name', route.name);
   headers.set('X-Proxy-Upstream', routeOrigin(route));
   headers.set('X-Proxy-Transport', transport);
+  headers.set('X-Proxy-Location-Path', route.locationPath || '/');
+  headers.set('X-Proxy-Pass-URI', route.proxyPassPath || '(none)');
   for (const [key, value] of Object.entries(extra)) {
     if (key === 'transport') continue;
     if (value !== undefined && value !== null) headers.set(key, String(value));
@@ -1245,7 +1530,7 @@ async function proxyTcpHttp(request, route) {
 
 async function handleProxyRequest(request, env, runtime, hostInfo) {
   const config = await getConfig(env);
-  const route = findRouteForHost(config, hostInfo);
+  const route = findRouteForRequest(config, hostInfo, new URL(request.url).pathname);
   if (!route) return renderNotManaged(hostInfo.host, runtime, config.global.noMatchStatus);
   if (route.transport === 'fetch') {
     try {
