@@ -1,12 +1,12 @@
 # Cloudflare Worker Proxy Pro
 
-Cloudflare Worker Proxy Pro 是一个运行在 **Cloudflare Workers + KV** 上的 Host-based 反向代理控制台。每个子域名对应一条虚拟主机规则，Worker 根据请求 Host 匹配上游，并通过 **TCP Sockets** 发起 HTTP/HTTPS upstream 请求。
+Cloudflare Worker Proxy Pro 是一个运行在 **Cloudflare Workers + KV** 上的 Host-based 反向代理控制台。每个子域名对应一条虚拟主机规则，Worker 根据请求 Host 匹配上游；标准 HTTP/HTTPS 端口使用 Worker `fetch()`，需要非标准端口或特殊 TCP 场景时使用 TCP Sockets。
 
 ## 产品能力
 
 - Host-based routing：按子域名匹配代理规则
 - Admin console：`admin.<MAIN_DOMAIN>` 独立后台入口
-- TCP upstream：使用 `cloudflare:sockets` 连接 HTTP/HTTPS 上游
+- Hybrid upstream：标准 HTTP/HTTPS 使用 `fetch()`，特殊场景使用 `cloudflare:sockets`
 - DNS resolve：域名上游可通过 `node:dns` 的 `resolve4/resolve6` 解析后连接
 - IP origin：支持直接代理到 IP 源站
 - Host Header：支持为上游请求设置独立 `Host` 头
@@ -28,7 +28,7 @@ Cloudflare Worker Proxy Pro 是一个运行在 **Cloudflare Workers + KV** 上�
 ```text
 admin.<MAIN_DOMAIN>  -> 后台控制台
 proxy.<MAIN_DOMAIN>  -> 产品落地页
-<sub>.<MAIN_DOMAIN>  -> Host Route TCP 代理
+<sub>.<MAIN_DOMAIN>  -> Host Route 代理
 其他 Host            -> 404 Not Managed
 ```
 
@@ -181,7 +181,7 @@ https://gh.rad0.indevs.in/robots.txt
 
 ## TCP Sockets 限制
 
-Cloudflare Workers TCP Sockets 遵循平台限制：不能连接 Cloudflare IP、`localhost`、部分私网或被平台禁止的地址；DNS 请求会计入 Worker subrequest limit。
+Cloudflare Workers TCP Sockets 不适合代理标准 HTTP/HTTPS 网站端口。项目会对 `http:80` 和 `https:443` 自动使用 `fetch()`，其他特殊端口才尝试 TCP Sockets。TCP Sockets 仍遵循平台限制：不能连接 Cloudflare IP、`localhost`、部分私网或被平台禁止的地址；DNS 请求会计入 Worker subrequest limit。
 
 HTTPS 域名上游默认可启用 DNS 解析。若源站强依赖 TLS SNI 且解析到 IP 后握手失败，可在后台关闭 `resolveDns`，让 TCP TLS 直接连接域名。
 

@@ -473,13 +473,13 @@ function renderAdminConsole(config, runtime, options = {}) {
 <html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Proxy Console</title><style>
 :root{--bg:#f5f7fb;--card:rgba(255,255,255,.88);--ink:#0f172a;--muted:#64748b;--line:#e5edf6;--line-strong:#cbd8ea;--brand:#2563eb;--brand2:#7c3aed;--danger:#e11d48;--ok:#16a34a;--shadow:0 28px 90px rgba(15,23,42,.12);--soft:0 12px 30px rgba(37,99,235,.14);--ring:0 0 0 4px rgba(37,99,235,.13)}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 8% 0,rgba(59,130,246,.10),transparent 30%),linear-gradient(180deg,#f8fbff,#eef4fb);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);-webkit-font-smoothing:antialiased}.hero{position:relative;overflow:hidden;background:radial-gradient(circle at 12% 20%,rgba(14,165,233,.36),transparent 28%),radial-gradient(circle at 86% 8%,rgba(124,58,237,.30),transparent 28%),linear-gradient(135deg,#06111f,#101827 48%,#1e1b4b);color:#fff;padding:30px 22px 96px}.hero:after{content:"";position:absolute;inset:auto -15% -42% -15%;height:260px;background:radial-gradient(circle,rgba(255,255,255,.13),transparent 62%);pointer-events:none}.shell{max-width:1240px;margin:0 auto;position:relative}.nav{display:flex;justify-content:space-between;align-items:center}.brand{display:flex;align-items:center;gap:12px;font-weight:900;letter-spacing:-.02em}.logo{width:44px;height:44px;border-radius:16px;background:linear-gradient(135deg,#38bdf8,#8b5cf6);display:grid;place-items:center;box-shadow:0 18px 42px rgba(56,189,248,.28)}.nav a{color:#dbeafe;text-decoration:none;font-weight:850;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.08);padding:10px 14px;border-radius:999px;transition:.18s ease}.nav a:hover{background:rgba(255,255,255,.14);transform:translateY(-1px)}.hero-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:28px;margin-top:38px;align-items:end}.eyebrow{color:#bfdbfe;font-size:12px;font-weight:900;letter-spacing:.18em;text-transform:uppercase}h1{font-size:clamp(38px,6vw,66px);line-height:.94;margin:12px 0 14px;letter-spacing:-.065em}.hero p{color:#cbd5e1;margin:0}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.stat{background:linear-gradient(180deg,rgba(255,255,255,.14),rgba(255,255,255,.08));border:1px solid rgba(255,255,255,.16);border-radius:22px;padding:18px;backdrop-filter:blur(18px);box-shadow:inset 0 1px 0 rgba(255,255,255,.10)}.stat strong{font-size:31px;display:block;letter-spacing:-.05em}.stat span{color:#cbd5e1;font-size:13px;font-weight:750}main.shell{margin-top:-66px;padding:0 22px 48px}.panel{background:var(--card);border:1px solid rgba(226,232,240,.86);border-radius:30px;box-shadow:var(--shadow);overflow:hidden;backdrop-filter:blur(18px)}.panel+.panel{margin-top:18px}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:23px 25px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(248,250,252,.9))}.panel-title h2{margin:0;font-size:22px;letter-spacing:-.035em}.panel-title p{margin:6px 0 0;color:var(--muted);font-size:14px;font-weight:650}.panel-body{padding:23px 25px}.toolbar,.actions{display:flex;gap:10px;flex-wrap:wrap}.btn{appearance:none;border:0;border-radius:15px;padding:11px 16px;background:linear-gradient(135deg,#2563eb,#4f46e5);color:#fff;font-weight:900;cursor:pointer;text-decoration:none;box-shadow:var(--soft);transition:transform .16s ease,box-shadow .16s ease,filter .16s ease;letter-spacing:-.01em}.btn:hover{transform:translateY(-1px);box-shadow:0 16px 34px rgba(37,99,235,.20);filter:saturate(1.08)}.btn:active{transform:translateY(0);box-shadow:0 8px 18px rgba(37,99,235,.14)}.btn.secondary{background:#0f172a;box-shadow:0 12px 26px rgba(15,23,42,.16)}.btn.ghost{background:#fff;color:#334155;border:1px solid #dbe6f4;box-shadow:0 8px 20px rgba(15,23,42,.06)}.btn.danger{background:linear-gradient(135deg,#f43f5e,#dc2626);box-shadow:0 12px 26px rgba(225,29,72,.16)}.notice{margin-bottom:16px;padding:13px 15px;border-radius:18px;font-weight:800;border:1px solid transparent}.notice.ok{background:#ecfdf5;color:#166534;border-color:#bbf7d0}.notice.err{background:#fff1f2;color:#9f1239;border-color:#fecdd3}.notice.warn{background:#fffbeb;color:#92400e;border-color:#fde68a}.top-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px}.field span,label span{display:block;font-size:11px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#475569;margin-bottom:8px}.route-card label:not(.switch),.top-grid label,.subgrid label{display:block}.route-card input,.route-card select,.route-card textarea,.top-grid input,.top-grid select,.subgrid input,.subgrid select,.subgrid textarea{width:100%;border:1px solid #dbe6f3;border-radius:16px;padding:12px 13px;background:linear-gradient(180deg,#fff,#fbfdff);color:var(--ink);font:inherit;outline:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 1px 2px rgba(15,23,42,.02);transition:border-color .16s ease,box-shadow .16s ease,background .16s ease}.route-card input:hover,.route-card select:hover,.route-card textarea:hover,.top-grid input:hover,.top-grid select:hover,.subgrid input:hover,.subgrid textarea:hover{border-color:#b9c8dc}.route-card input:focus,.route-card select:focus,.route-card textarea:focus,.top-grid input:focus,.top-grid select:focus,.subgrid input:focus,.subgrid textarea:focus{border-color:#60a5fa;box-shadow:var(--ring),inset 0 1px 0 rgba(255,255,255,.9);background:#fff}input[readonly]{color:#64748b;background:#f8fafc}textarea{min-height:106px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;line-height:1.55}.route-list{display:grid;gap:18px}.route-card{position:relative;border:1px solid #dbeafe;border-radius:26px;padding:20px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(248,251,255,.94));box-shadow:0 14px 38px rgba(30,64,175,.07);transition:border-color .16s ease,box-shadow .16s ease,transform .16s ease}.route-card:hover{border-color:#bfdbfe;box-shadow:0 18px 46px rgba(30,64,175,.10);transform:translateY(-1px)}.route-card:before{content:"";position:absolute;left:20px;right:20px;top:0;height:1px;background:linear-gradient(90deg,transparent,rgba(59,130,246,.38),transparent)}.route-head{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:18px}.route-head strong{display:block;font-size:18px;letter-spacing:-.03em}.route-head small{display:block;color:var(--muted);margin-top:5px;font-weight:650}.pill{border-radius:999px;padding:8px 11px;font-size:12px;font-weight:900;border:1px solid transparent}.pill.ok{background:#dcfce7;color:#166534;border-color:#bbf7d0}.pill.off{background:#fee2e2;color:#991b1b;border-color:#fecaca}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:15px}.grid.two{grid-template-columns:1fr 1fr;margin-top:15px}.switch{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid #dbe6f3;border-radius:18px;padding:12px 13px;background:linear-gradient(180deg,#fff,#f8fbff);min-height:68px}.switch input{appearance:none;width:42px;height:24px;border-radius:999px;border:1px solid #cbd5e1;background:#cbd5e1;position:relative;cursor:pointer;transition:.18s ease;flex:0 0 auto}.switch input:before{content:"";position:absolute;width:18px;height:18px;border-radius:50%;left:2px;top:2px;background:#fff;box-shadow:0 2px 6px rgba(15,23,42,.22);transition:.18s ease}.switch input:checked{background:linear-gradient(135deg,#2563eb,#7c3aed);border-color:#2563eb}.switch input:checked:before{transform:translateX(18px)}.actions{margin-top:16px;justify-content:flex-end}.empty{border:1px dashed #cbd5e1;border-radius:22px;padding:30px;text-align:center;color:var(--muted);background:rgba(248,250,252,.74);font-weight:750}.subgrid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}.code{background:linear-gradient(180deg,#0f172a,#111827);color:#dbeafe;border:1px solid rgba(148,163,184,.18);border-radius:20px;padding:17px;min-height:150px;white-space:pre-wrap;word-break:break-word;overflow:auto;box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}.tcp-badge{display:inline-flex;gap:8px;align-items:center;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.1);border-radius:999px;padding:8px 12px;color:#dbeafe;font-weight:850;font-size:13px;backdrop-filter:blur(14px)}@media(max-width:980px){.hero-grid,.stats,.top-grid,.subgrid,.grid,.grid.two{grid-template-columns:1fr}.panel-head,.route-head{align-items:flex-start;flex-direction:column}.actions{justify-content:flex-start}}
 </style></head><body>
-<section class="hero"><div class="shell"><div class="nav"><div class="brand"><div class="logo">↯</div><div>Proxy Console</div></div><a href="/logout">退出</a></div><div class="hero-grid"><div><div class="eyebrow">TCP Socket Reverse Proxy</div><h1>Edge upstreams over TCP.</h1><p>${escapeHtml(runtime.mainDomain)} · admin: ${escapeHtml(runtime.adminHost)}</p><div style="margin-top:18px"><span class="tcp-badge">HTTP/1.1 over TCP</span></div></div><div class="stats"><div class="stat"><strong>${routes.length}</strong><span>Routes</span></div><div class="stat"><strong>${routes.filter(route => route.enabled).length}</strong><span>Enabled</span></div><div class="stat"><strong>v4</strong><span>KV Schema</span></div></div></div></div></section>
+<section class="hero"><div class="shell"><div class="nav"><div class="brand"><div class="logo">↯</div><div>Proxy Console</div></div><a href="/logout">退出</a></div><div class="hero-grid"><div><div class="eyebrow">HTTP Reverse Proxy</div><h1>Edge upstreams done right.</h1><p>${escapeHtml(runtime.mainDomain)} · admin: ${escapeHtml(runtime.adminHost)}</p><div style="margin-top:18px"><span class="tcp-badge">fetch for 80/443 · TCP fallback</span></div></div><div class="stats"><div class="stat"><strong>${routes.length}</strong><span>Routes</span></div><div class="stat"><strong>${routes.filter(route => route.enabled).length}</strong><span>Enabled</span></div><div class="stat"><strong>v4</strong><span>KV Schema</span></div></div></div></div></section>
 <main class="shell">
-  <div class="panel"><div class="panel-head"><div class="panel-title"><h2>Host Routes</h2><p>subdomain → TCP upstream · DNS · Host Header</p></div><div class="toolbar"><button form="routeForm" class="btn" name="_action" value="addRoute">新增 Route</button><button form="routeForm" class="btn secondary" name="_action" value="addGh">添加 GitHub</button></div></div><div class="panel-body">
+  <div class="panel"><div class="panel-head"><div class="panel-title"><h2>Host Routes</h2><p>subdomain → upstream · DNS · Host Header</p></div><div class="toolbar"><button form="routeForm" class="btn" name="_action" value="addRoute">新增 Route</button><button form="routeForm" class="btn secondary" name="_action" value="addGh">添加 GitHub</button></div></div><div class="panel-body">
     ${options.saved ? '<div class="notice ok">配置已保存</div>' : ''}${options.error ? `<div class="notice err">${escapeHtml(options.error)}</div>` : ''}${options.kvBound ? '' : '<div class="notice warn">KV 未绑定，保存会失败</div>'}
-    <form method="POST" action="/" id="routeForm"><div class="top-grid"><label class="field"><span>No Match</span><select name="noMatchStatus"><option value="404" ${normalized.global.noMatchStatus === 404 ? 'selected' : ''}>404</option><option value="403" ${normalized.global.noMatchStatus === 403 ? 'selected' : ''}>403</option></select></label><label class="field"><span>Runtime</span><input value="cloudflare:sockets" readonly></label><label class="field"><span>DNS</span><input value="node:dns resolve4 / resolve6" readonly></label></div><input type="hidden" name="routeCount" value="${routes.length}">${routes.length ? `<div class="route-list">${routes.map((route, index) => renderRouteCard(route, index, runtime)).join('')}</div>` : '<div class="empty">暂无 Host Route，添加一个 TCP upstream 开始使用。</div>'}<div class="toolbar" style="margin-top:18px"><button class="btn" name="_action" value="save">保存配置</button></div></form>
+    <form method="POST" action="/" id="routeForm"><div class="top-grid"><label class="field"><span>No Match</span><select name="noMatchStatus"><option value="404" ${normalized.global.noMatchStatus === 404 ? 'selected' : ''}>404</option><option value="403" ${normalized.global.noMatchStatus === 403 ? 'selected' : ''}>403</option></select></label><label class="field"><span>Runtime</span><input value="fetch + cloudflare:sockets" readonly></label><label class="field"><span>DNS</span><input value="node:dns resolve4 / resolve6" readonly></label></div><input type="hidden" name="routeCount" value="${routes.length}">${routes.length ? `<div class="route-list">${routes.map((route, index) => renderRouteCard(route, index, runtime)).join('')}</div>` : '<div class="empty">暂无 Host Route，添加一个 TCP upstream 开始使用。</div>'}<div class="toolbar" style="margin-top:18px"><button class="btn" name="_action" value="save">保存配置</button></div></form>
   </div></div>
-  <div class="subgrid"><section class="panel"><div class="panel-head"><div class="panel-title"><h2>Preview</h2><p>host + path → TCP request</p></div></div><div class="panel-body"><form method="GET" action="/"><label><span>Host</span><input name="previewHost" value="${escapeHtml(options.previewHost || `gh.${runtime.mainDomain}`)}"></label><label style="margin-top:12px"><span>Path</span><input name="previewPath" value="${escapeHtml(options.previewPath || '/robots.txt')}"></label><button class="btn" style="margin-top:12px">预览</button></form><pre class="code" style="margin-top:14px">${escapeHtml(previewJson)}</pre></div></section><section class="panel"><div class="panel-head"><div class="panel-title"><h2>Presets</h2><p>production-ready examples</p></div></div><div class="panel-body"><pre class="code">${escapeHtml(JSON.stringify({ github: githubPresetRoute() }, null, 2))}</pre></div></section></div>
+  <div class="subgrid"><section class="panel"><div class="panel-head"><div class="panel-title"><h2>Preview</h2><p>host + path → upstream request</p></div></div><div class="panel-body"><form method="GET" action="/"><label><span>Host</span><input name="previewHost" value="${escapeHtml(options.previewHost || `gh.${runtime.mainDomain}`)}"></label><label style="margin-top:12px"><span>Path</span><input name="previewPath" value="${escapeHtml(options.previewPath || '/robots.txt')}"></label><button class="btn" style="margin-top:12px">预览</button></form><pre class="code" style="margin-top:14px">${escapeHtml(previewJson)}</pre></div></section><section class="panel"><div class="panel-head"><div class="panel-title"><h2>Presets</h2><p>production-ready examples</p></div></div><div class="panel-body"><pre class="code">${escapeHtml(JSON.stringify({ github: githubPresetRoute() }, null, 2))}</pre></div></section></div>
 </main></body></html>`;
 }
 
@@ -552,7 +552,7 @@ function renderLandingPage(runtime) {
   return `<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Edge Proxy</title><style>
 :root{--ink:#0f172a;--muted:#64748b;--brand:#2563eb;--line:#e2e8f0}*{box-sizing:border-box}body{margin:0;font-family:Inter,ui-sans-serif,system-ui;color:var(--ink);background:#f8fafc}.hero{min-height:100vh;display:grid;place-items:center;padding:32px;background:radial-gradient(circle at 15% 12%,rgba(14,165,233,.32),transparent 30%),radial-gradient(circle at 85% 10%,rgba(124,58,237,.28),transparent 30%),linear-gradient(135deg,#eff6ff,#fff)}.card{width:min(980px,100%);background:rgba(255,255,255,.84);border:1px solid rgba(226,232,240,.9);border-radius:32px;box-shadow:0 28px 80px rgba(15,23,42,.12);padding:48px;backdrop-filter:blur(18px)}.badge{display:inline-flex;border:1px solid #bfdbfe;color:#1d4ed8;background:#eff6ff;border-radius:999px;padding:8px 12px;font-weight:850;font-size:13px}.title{font-size:clamp(42px,7vw,86px);line-height:.92;letter-spacing:-.07em;margin:22px 0 18px}.lead{font-size:19px;line-height:1.7;color:var(--muted);max-width:720px;margin:0}.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:30px}.btn{border:0;border-radius:14px;padding:13px 18px;text-decoration:none;font-weight:850;display:inline-flex}.btn.primary{background:var(--brand);color:#fff;box-shadow:0 14px 30px rgba(37,99,235,.24)}.btn.secondary{background:#0f172a;color:#fff}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:36px}.item{border:1px solid var(--line);border-radius:22px;background:#fff;padding:20px}.item b{display:block;margin-bottom:8px}.item span{color:var(--muted);font-size:14px;line-height:1.6}@media(max-width:760px){.card{padding:28px}.grid{grid-template-columns:1fr}}
-</style></head><body><section class="hero"><div class="card"><div class="badge">${escapeHtml(runtime.mainDomain)}</div><h1 class="title">TCP proxy at the edge.</h1><p class="lead">将每个子域名映射到独立 HTTP/HTTPS upstream，通过 Cloudflare Workers TCP Sockets 连接域名或 IP 源站。</p><div class="actions"><a class="btn primary" href="https://${escapeHtml(runtime.adminHost)}">进入控制台</a><a class="btn secondary" href="https://gh.${escapeHtml(runtime.mainDomain)}">GitHub Route</a></div><div class="grid"><div class="item"><b>Virtual Host</b><span>按 Host 匹配子域名。</span></div><div class="item"><b>TCP Sockets</b><span>统一通过 TCP 发起 HTTP/HTTPS upstream 请求。</span></div><div class="item"><b>DNS + Host</b><span>支持域名解析、IP 源站和 Host Header 覆盖。</span></div></div></div></section></body></html>`;
+</style></head><body><section class="hero"><div class="card"><div class="badge">${escapeHtml(runtime.mainDomain)}</div><h1 class="title">Reverse proxy at the edge.</h1><p class="lead">将每个子域名映射到独立 HTTP/HTTPS upstream，通过 Cloudflare Workers 连接域名或 IP 源站。</p><div class="actions"><a class="btn primary" href="https://${escapeHtml(runtime.adminHost)}">进入控制台</a><a class="btn secondary" href="https://gh.${escapeHtml(runtime.mainDomain)}">GitHub Route</a></div><div class="grid"><div class="item"><b>Virtual Host</b><span>按 Host 匹配子域名。</span></div><div class="item"><b>Hybrid Transport</b><span>标准 HTTP/HTTPS 使用 fetch，特殊场景回退 TCP Sockets。</span></div><div class="item"><b>DNS + Host</b><span>支持域名解析、IP 源站和 Host Header 覆盖。</span></div></div></div></section></body></html>`;
 }
 
 function renderNotManaged(host, runtime, status = 404) {
@@ -693,14 +693,15 @@ function appendHeaderLine(lines, key, value) {
   if (cleanKey && validateHeaderName(cleanKey)) lines.push(`${cleanKey}: ${cleanValue}`);
 }
 
-function sanitizeRequestHeaders(request, route, bodyLength) {
+function sanitizeRequestHeaders(request, route, bodyLength, options = {}) {
   const headers = new Headers();
   const sourceHeaders = route.headers.forwardClientHeaders ? request.headers : new Headers();
   for (const [key, value] of sourceHeaders.entries()) {
-    if (!HOP_BY_HOP_HEADERS.includes(key.toLowerCase())) headers.set(key, value);
+    const lower = key.toLowerCase();
+    if (lower === 'host' || !HOP_BY_HOP_HEADERS.includes(lower)) headers.set(key, value);
   }
   for (const headerName of route.headers.remove) headers.delete(headerName);
-  headers.set('Host', routeHostHeader(route));
+  headers.delete('Host');
   headers.set('X-Forwarded-Host', new URL(request.url).host);
   headers.set('X-Forwarded-Proto', new URL(request.url).protocol.replace(':', ''));
   const clientIp = request.headers.get('CF-Connecting-IP');
@@ -708,17 +709,22 @@ function sanitizeRequestHeaders(request, route, bodyLength) {
   const nextForwardedFor = [previousForwardedFor, clientIp].filter(Boolean).join(', ');
   if (nextForwardedFor) headers.set('X-Forwarded-For', nextForwardedFor);
   if (clientIp) headers.set('X-Real-IP', clientIp);
-  for (const [key, value] of Object.entries(route.headers.set)) headers.set(key, value);
-  headers.set('Connection', 'close');
-  if (bodyLength > 0) headers.set('Content-Length', String(bodyLength));
-  else headers.delete('Content-Length');
+  for (const [key, value] of Object.entries(route.headers.set)) {
+    if (key.toLowerCase() !== 'host') headers.set(key, value);
+  }
+  if (options.transport === 'tcp') {
+    headers.set('Host', routeHostHeader(route));
+    headers.set('Connection', 'close');
+    if (bodyLength > 0) headers.set('Content-Length', String(bodyLength));
+  }
+  if (bodyLength <= 0) headers.delete('Content-Length');
   return headers;
 }
 
 function buildTcpHttpRequest(request, route, bodyBytes) {
   const path = buildUpstreamPath(request.url, route);
   const lines = [`${request.method.toUpperCase()} ${path} HTTP/1.1`];
-  const headers = sanitizeRequestHeaders(request, route, bodyBytes.byteLength);
+  const headers = sanitizeRequestHeaders(request, route, bodyBytes.byteLength, { transport: 'tcp' });
   for (const [key, value] of headers.entries()) appendHeaderLine(lines, key, value);
   const head = `${lines.join('\r\n')}\r\n\r\n`;
   return new TextEncoder().encode(head);
@@ -956,11 +962,13 @@ async function resolveDnsTarget(route) {
 }
 
 function addProxyDiagnosticHeaders(headers, route, extra = {}) {
+  const transport = extra.transport || 'tcp';
   headers.set('X-Proxy-Route-Id', route.id);
   headers.set('X-Proxy-Route-Name', route.name);
   headers.set('X-Proxy-Upstream', routeOrigin(route));
-  headers.set('X-Proxy-Transport', 'tcp');
+  headers.set('X-Proxy-Transport', transport);
   for (const [key, value] of Object.entries(extra)) {
+    if (key === 'transport') continue;
     if (value !== undefined && value !== null) headers.set(key, String(value));
   }
 }
@@ -970,6 +978,37 @@ function upstreamErrorResponse(error, route) {
   const headers = new Headers({ 'Content-Type': 'text/plain; charset=utf-8' });
   addProxyDiagnosticHeaders(headers, route, { 'X-Proxy-Error-Code': error?.code || 'UPSTREAM_ERROR' });
   return new Response(`Bad Gateway: ${error?.message || String(error)}\n`, { status, headers });
+}
+
+
+function shouldUseFetchTransport(route) {
+  const port = Number(route.upstreamPort);
+  return (route.scheme === 'http' && port === 80) || (route.scheme === 'https' && port === 443);
+}
+
+function shouldFallbackToFetch(error) {
+  const message = String(error?.message || error || '').toLowerCase();
+  return message.includes('consider using fetch') || message.includes('http-based service');
+}
+
+async function proxyFetchHttp(request, route) {
+  const bodyBytes = await getReusableBody(request);
+  const targetUrl = buildUpstreamUrl(request.url, route);
+  const headers = sanitizeRequestHeaders(request, route, bodyBytes.byteLength, { transport: 'fetch' });
+  const upstreamResponse = await fetch(targetUrl, {
+    method: request.method,
+    headers,
+    body: bodyBytes.byteLength > 0 ? bodyBytes : undefined,
+    redirect: 'manual',
+    cf: { scrapeShield: false }
+  });
+  const responseHeaders = new Headers(upstreamResponse.headers);
+  addProxyDiagnosticHeaders(responseHeaders, route, { transport: 'fetch' });
+  return new Response(upstreamResponse.body, {
+    status: upstreamResponse.status,
+    statusText: upstreamResponse.statusText,
+    headers: responseHeaders
+  });
 }
 
 async function proxyTcpHttp(request, route) {
@@ -1027,9 +1066,25 @@ async function handleProxyRequest(request, env, runtime, hostInfo) {
   const config = await getConfig(env);
   const route = findRouteForHost(config, hostInfo);
   if (!route) return renderNotManaged(hostInfo.host, runtime, config.global.noMatchStatus);
+  if (shouldUseFetchTransport(route)) {
+    try {
+      return await proxyFetchHttp(request, route);
+    } catch (error) {
+      console.log(`Fetch proxy failed route=${route.id}: ${error.stack || error.message}`);
+      return upstreamErrorResponse(error, route);
+    }
+  }
   try {
     return await proxyTcpHttp(request, route);
   } catch (error) {
+    if (shouldFallbackToFetch(error)) {
+      try {
+        return await proxyFetchHttp(request, route);
+      } catch (fetchError) {
+        console.log(`Fetch fallback failed route=${route.id}: ${fetchError.stack || fetchError.message}`);
+        return upstreamErrorResponse(fetchError, route);
+      }
+    }
     console.log(`TCP proxy failed route=${route.id}: ${error.stack || error.message}`);
     return upstreamErrorResponse(error, route);
   }
