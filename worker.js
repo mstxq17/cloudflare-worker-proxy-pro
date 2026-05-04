@@ -43,6 +43,16 @@ function escapeHtml(value = '') {
     .replaceAll("'", '&#39;');
 }
 
+
+function escapeScriptJson(value = '') {
+  return String(value)
+    .replaceAll('&', '\\u0026')
+    .replaceAll('<', '\\u003c')
+    .replaceAll('>', '\\u003e')
+    .replaceAll('\u2028', '\\u2028')
+    .replaceAll('\u2029', '\\u2029');
+}
+
 function htmlResponse(body, init = {}) {
   const headers = new Headers(init.headers || {});
   if (!headers.has('Content-Type')) {
@@ -345,292 +355,287 @@ function renderLoginPage(error = '') {
 </html>`;
 }
 
+function renderAdminClientScript() {
+  return String.raw`<script>
+(function () {
+  const $ = (selector, root = document) => root.querySelector(selector);
+  const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+  const clone = (value) => JSON.parse(JSON.stringify(value));
+  const readJson = (id, fallback) => {
+    const node = document.getElementById(id);
+    if (!node) return fallback;
+    try { return JSON.parse(node.textContent || ''); } catch { return fallback; }
+  };
+
+  const presetRule = readJson('presetRuleData', {});
+  const defaultRule = readJson('defaultRuleData', {});
+  const initialRules = readJson('initialRulesData', []);
+  const state = {
+    rules: Array.isArray(initialRules) ? clone(initialRules) : []
+  };
+
+  const ruleList = $('#ruleList');
+  const emptyState = $('#emptyState');
+  const rulesJsonEditor = $('#rulesJsonEditor');
+  const rulesJsonHidden = $('#rulesJsonHidden');
+  const form = $('#configForm');
+  const addRuleBtn = $('#addRuleBtn');
+  const addGhPresetBtn = $('#addGhPresetBtn');
+  const runTestBtn = $('#runTestBtn');
+  const testPathInput = $('#testPath');
+  const testResult = $('#testResult');
+  const ruleCount = $('#ruleCount');
+  const enabledCount = $('#enabledCount');
+
+  const escapeHtml = (value) => String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+
+  const headersSetToText = (headers = {}) => Object.entries(headers).map(([k, v]) => k + ': ' + v).join('\n');
+  const headersRemoveToText = (headers = []) => Array.isArray(headers) ? headers.join('\n') : '';
+  const parseHeadersSetText = (text = '') => Object.fromEntries(text.split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => {
+    const idx = line.indexOf(':');
+    if (idx === -1) return [line, ''];
+    return [line.slice(0, idx).trim(), line.slice(idx + 1).trim()];
+  }).filter(([k]) => k));
+  const parseHeadersRemoveText = (text = '') => text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+
+  const ensureRuleShape = (rule = {}, index = 0) => ({
+    id: rule.id || 'rule-' + (index + 1),
+    name: rule.name || 'Rule ' + (index + 1),
+    enabled: rule.enabled !== false,
+    priority: Number.isFinite(Number(rule.priority)) ? Number(rule.priority) : 100,
+    match: {
+      pattern: rule?.match?.pattern || '^/(.*)$',
+      flags: rule?.match?.flags || ''
+    },
+    target: {
+      origin: rule?.target?.origin || 'https://example.com',
+      pathTemplate: rule?.target?.pathTemplate || '/$1'
+    },
+    headers: {
+      forwardClientHeaders: rule?.headers?.forwardClientHeaders !== false,
+      set: rule?.headers?.set || {},
+      remove: Array.isArray(rule?.headers?.remove) ? rule.headers.remove : []
+    }
+  });
+
+  function syncJsonEditors() {
+    const json = JSON.stringify(state.rules, null, 2);
+    if (rulesJsonEditor) rulesJsonEditor.value = json;
+    if (rulesJsonHidden) rulesJsonHidden.value = json;
+    if (ruleCount) ruleCount.textContent = String(state.rules.length);
+    if (enabledCount) enabledCount.textContent = String(state.rules.filter(rule => rule.enabled !== false).length);
+  }
+
+  function updateRuleFromCard(index, card) {
+    state.rules[index] = {
+      id: $('[data-field="id"]', card).value.trim(),
+      name: $('[data-field="name"]', card).value.trim(),
+      enabled: $('[data-field="enabled"]', card).checked,
+      priority: Number($('[data-field="priority"]', card).value || 100),
+      match: {
+        pattern: $('[data-field="pattern"]', card).value,
+        flags: $('[data-field="flags"]', card).value
+      },
+      target: {
+        origin: $('[data-field="origin"]', card).value.trim(),
+        pathTemplate: $('[data-field="pathTemplate"]', card).value
+      },
+      headers: {
+        forwardClientHeaders: $('[data-field="forwardClientHeaders"]', card).checked,
+        set: parseHeadersSetText($('[data-field="headersSet"]', card).value),
+        remove: parseHeadersRemoveText($('[data-field="headersRemove"]', card).value)
+      }
+    };
+    syncJsonEditors();
+  }
+
+  function renderRules() {
+    if (!ruleList) return;
+    ruleList.innerHTML = '';
+    if (emptyState) emptyState.hidden = state.rules.length > 0;
+
+    state.rules.forEach((rawRule, index) => {
+      const rule = ensureRuleShape(rawRule, index);
+      state.rules[index] = rule;
+      const card = document.createElement('article');
+      card.className = 'rule-card';
+      card.innerHTML = ''
+        + '<div class="rule-head">'
+        + '  <div class="rule-title"><span class="rule-index">#' + (index + 1) + '</span><div><strong>' + escapeHtml(rule.name) + '</strong><small>' + escapeHtml(rule.id) + '</small></div></div>'
+        + '  <div class="rule-actions">'
+        + '    <span class="pill ' + (rule.enabled ? 'ok' : 'off') + '">' + (rule.enabled ? 'Enabled' : 'Disabled') + '</span>'
+        + '    <button class="btn ghost" type="button" data-action="up">上移</button>'
+        + '    <button class="btn ghost" type="button" data-action="down">下移</button>'
+        + '    <button class="btn danger" type="button" data-action="delete">删除</button>'
+        + '  </div>'
+        + '</div>'
+        + '<div class="form-grid">'
+        + '  <label><span>规则 ID</span><input data-field="id" value="' + escapeHtml(rule.id) + '"></label>'
+        + '  <label><span>名称</span><input data-field="name" value="' + escapeHtml(rule.name) + '"></label>'
+        + '  <label><span>优先级</span><input data-field="priority" type="number" value="' + rule.priority + '"></label>'
+        + '  <label class="switch-row"><span>启用</span><input data-field="enabled" type="checkbox" ' + (rule.enabled ? 'checked' : '') + '></label>'
+        + '  <label><span>Path Regex</span><input data-field="pattern" value="' + escapeHtml(rule.match.pattern) + '"></label>'
+        + '  <label><span>Regex Flags</span><input data-field="flags" value="' + escapeHtml(rule.match.flags) + '" placeholder="i"></label>'
+        + '  <label><span>Target Origin</span><input data-field="origin" value="' + escapeHtml(rule.target.origin) + '"></label>'
+        + '  <label><span>Path Template</span><input data-field="pathTemplate" value="' + escapeHtml(rule.target.pathTemplate) + '"></label>'
+        + '  <label class="switch-row"><span>转发客户端 Header</span><input data-field="forwardClientHeaders" type="checkbox" ' + (rule.headers.forwardClientHeaders ? 'checked' : '') + '></label>'
+        + '</div>'
+        + '<div class="form-grid two" style="margin-top:14px">'
+        + '  <label><span>覆盖 Header</span><textarea data-field="headersSet" placeholder="X-Token: value">' + escapeHtml(headersSetToText(rule.headers.set)) + '</textarea></label>'
+        + '  <label><span>删除 Header</span><textarea data-field="headersRemove" placeholder="Cookie&#10;Authorization">' + escapeHtml(headersRemoveToText(rule.headers.remove)) + '</textarea></label>'
+        + '</div>';
+
+      $$('[data-field]', card).forEach(el => {
+        el.addEventListener('input', () => updateRuleFromCard(index, card));
+        el.addEventListener('change', () => updateRuleFromCard(index, card));
+      });
+      $('[data-action="delete"]', card).addEventListener('click', () => {
+        state.rules.splice(index, 1);
+        renderRules();
+      });
+      $('[data-action="up"]', card).addEventListener('click', () => {
+        if (index === 0) return;
+        [state.rules[index - 1], state.rules[index]] = [state.rules[index], state.rules[index - 1]];
+        renderRules();
+      });
+      $('[data-action="down"]', card).addEventListener('click', () => {
+        if (index >= state.rules.length - 1) return;
+        [state.rules[index + 1], state.rules[index]] = [state.rules[index], state.rules[index + 1]];
+        renderRules();
+      });
+      ruleList.appendChild(card);
+    });
+    syncJsonEditors();
+  }
+
+  addRuleBtn?.addEventListener('click', () => {
+    const next = clone(defaultRule);
+    next.id = 'rule-' + (state.rules.length + 1);
+    next.name = 'New Proxy Rule';
+    state.rules.push(next);
+    renderRules();
+  });
+
+  addGhPresetBtn?.addEventListener('click', () => {
+    const existingIndex = state.rules.findIndex(rule => rule.id === presetRule.id || rule.name === presetRule.name);
+    if (existingIndex >= 0) state.rules[existingIndex] = clone(presetRule);
+    else state.rules.push(clone(presetRule));
+    renderRules();
+    if (testPathInput) testPathInput.value = '/gh/robots.txt';
+  });
+
+  rulesJsonEditor?.addEventListener('change', () => {
+    try {
+      const parsed = JSON.parse(rulesJsonEditor.value);
+      state.rules = Array.isArray(parsed) ? parsed : [];
+      renderRules();
+    } catch (error) {
+      alert('规则 JSON 解析失败：' + error.message);
+    }
+  });
+
+  form?.addEventListener('submit', () => syncJsonEditors());
+
+  runTestBtn?.addEventListener('click', async () => {
+    const path = testPathInput.value.trim() || '/';
+    testResult.textContent = 'Testing...';
+    try {
+      const response = await fetch('/api/admin/test-match', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path })
+      });
+      const data = await response.json();
+      testResult.textContent = JSON.stringify(data, null, 2);
+    } catch (error) {
+      testResult.textContent = JSON.stringify({ ok: false, error: error.message || 'Test failed' }, null, 2);
+    }
+  });
+
+  renderRules();
+})();
+</script>`;
+}
+
 function renderAdminPage(config, options = {}) {
   const ruleJson = JSON.stringify(config.rules, null, 2);
-  const previewPath = escapeHtml(options.previewPath || '/api/hello?x=1');
-  const presetRuleJson = JSON.stringify(githubPresetRule());
+  const previewPath = escapeHtml(options.previewPath || '/gh/robots.txt');
+  const initialRulesJson = escapeScriptJson(JSON.stringify(config.rules || []));
+  const presetRuleJson = escapeScriptJson(JSON.stringify(githubPresetRule()));
+  const defaultRuleJson = escapeScriptJson(JSON.stringify(defaultRule()));
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Worker Proxy Admin</title>
+  <title>Proxy Console</title>
   <style>
-    body{font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;background:#f8fafc;color:#0f172a;margin:0}
-    main{max-width:1180px;margin:0 auto;padding:24px}
-    .top{display:flex;justify-content:space-between;gap:16px;align-items:center;flex-wrap:wrap}
-    .card{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:20px;box-shadow:0 8px 20px rgba(15,23,42,.05);margin-top:18px}
-    label{display:block;font-weight:700;margin-bottom:8px}
-    input,select,textarea{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;border:1px solid #cbd5e1;font:inherit;background:#fff}
-    textarea{min-height:140px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
-    .msg{padding:12px 14px;border-radius:10px;margin-top:16px}
-    .ok{background:#ecfdf5;color:#166534}.err{background:#fef2f2;color:#b91c1c}.warn{background:#fffbeb;color:#92400e}
-    .btn{display:inline-block;padding:10px 14px;background:#2563eb;color:#fff;text-decoration:none;border:0;border-radius:10px;font-weight:700;cursor:pointer}
-    .btn.secondary{background:#475569}.btn.danger{background:#dc2626}.btn.ghost{background:#e2e8f0;color:#0f172a}
-    .muted{color:#64748b;font-size:14px}
-    code{background:#e2e8f0;padding:2px 6px;border-radius:6px}
-    pre{white-space:pre-wrap;word-break:break-word;background:#0f172a;color:#e2e8f0;padding:12px;border-radius:12px}
-    .row{display:flex;gap:12px;align-items:end;flex-wrap:wrap}.row > div{flex:1 1 260px}
-    .rule-card{border:1px solid #dbeafe;border-radius:14px;padding:16px;background:#f8fbff;margin-top:14px}
-    .rule-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
-    .rule-actions{display:flex;gap:8px;flex-wrap:wrap}
-    .json-preview{min-height:120px}
+    :root{--bg:#f3f6fb;--card:#fff;--ink:#0f172a;--muted:#64748b;--line:#e2e8f0;--brand:#2563eb;--brand2:#7c3aed;--danger:#dc2626;--ok:#16a34a;--shadow:0 20px 50px rgba(15,23,42,.08)}
+    *{box-sizing:border-box} body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink)}
+    .hero{background:radial-gradient(circle at 12% 20%,rgba(96,165,250,.32),transparent 28%),linear-gradient(135deg,#07111f,#111827 45%,#1d2560);color:#fff;padding:28px 22px 96px}
+    .shell{max-width:1180px;margin:0 auto}.nav{display:flex;align-items:center;justify-content:space-between;gap:16px}.brand{display:flex;align-items:center;gap:12px;font-weight:800;letter-spacing:-.02em}.logo{width:42px;height:42px;border-radius:14px;background:linear-gradient(135deg,#60a5fa,#a78bfa);display:grid;place-items:center;box-shadow:0 12px 28px rgba(96,165,250,.35)}
+    .nav-actions{display:flex;gap:10px;flex-wrap:wrap}.hero-main{display:grid;grid-template-columns:1.2fr .8fr;gap:28px;align-items:end;margin-top:38px}.eyebrow{color:#bfdbfe;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.18em}.hero h1{font-size:clamp(34px,6vw,64px);line-height:.95;margin:12px 0 16px;letter-spacing:-.06em}.hero p{margin:0;color:#cbd5e1;max-width:660px;font-size:17px}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.stat{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.16);border-radius:20px;padding:18px;backdrop-filter:blur(14px)}.stat strong{display:block;font-size:30px}.stat span{color:#cbd5e1;font-size:13px}
+    main.shell{margin-top:-68px;padding:0 22px 40px}.panel{background:var(--card);border:1px solid var(--line);border-radius:26px;box-shadow:var(--shadow);overflow:hidden}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:22px 24px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#fff,#f8fafc)}.panel-title h2{margin:0;font-size:20px}.panel-title p{margin:4px 0 0;color:var(--muted);font-size:14px}.panel-body{padding:22px 24px}.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.btn{appearance:none;border:0;border-radius:13px;padding:10px 14px;font-weight:750;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:8px;background:var(--brand);color:#fff;box-shadow:0 8px 20px rgba(37,99,235,.2)}.btn.secondary{background:#334155}.btn.ghost{background:#eef2ff;color:#1e293b;box-shadow:none}.btn.danger{background:var(--danger)}.btn:hover{filter:brightness(.97)}
+    .notice{margin:16px 0 0;padding:12px 14px;border-radius:16px;font-weight:650}.notice.ok{background:#ecfdf5;color:#166534}.notice.err{background:#fef2f2;color:#991b1b}.notice.warn{background:#fffbeb;color:#92400e}
+    label span{display:block;color:#334155;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px}input,select,textarea{width:100%;border:1px solid #dbe3ef;border-radius:14px;padding:11px 12px;font:inherit;background:#fff;color:var(--ink);outline:none}input:focus,select:focus,textarea:focus{border-color:#93c5fd;box-shadow:0 0 0 4px rgba(147,197,253,.25)}textarea{min-height:104px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.form-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.form-grid.two{grid-template-columns:1fr 1fr}.switch-row{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid #dbe3ef;border-radius:14px;padding:11px 12px}.switch-row span{margin:0}.switch-row input{width:auto;transform:scale(1.15)}
+    .rule-list{display:grid;gap:16px}.rule-card{border:1px solid #dbeafe;border-radius:22px;padding:18px;background:linear-gradient(180deg,#fff,#f8fbff)}.rule-head{display:flex;justify-content:space-between;gap:14px;align-items:center;margin-bottom:16px}.rule-title{display:flex;align-items:center;gap:12px}.rule-title strong{display:block}.rule-title small{display:block;color:var(--muted);margin-top:3px}.rule-index{width:36px;height:36px;border-radius:12px;background:#dbeafe;color:#1d4ed8;display:grid;place-items:center;font-weight:800}.rule-actions{display:flex;gap:8px;flex-wrap:wrap}.pill{border-radius:999px;padding:7px 10px;font-size:12px;font-weight:800}.pill.ok{background:#dcfce7;color:#166534}.pill.off{background:#fee2e2;color:#991b1b}
+    .empty{border:1px dashed #cbd5e1;border-radius:20px;padding:28px;text-align:center;color:var(--muted);background:#f8fafc}.subgrid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}.codebox{background:#0f172a;color:#dbeafe;border-radius:18px;padding:16px;min-height:140px;white-space:pre-wrap;word-break:break-word;overflow:auto}.json-details{margin-top:16px}.json-details summary{cursor:pointer;font-weight:800;color:#334155}.json-details textarea{margin-top:12px;min-height:160px}.top-section{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px}.metric{border:1px solid var(--line);border-radius:18px;padding:16px;background:#fff}.metric b{display:block;font-size:28px}.metric span{color:var(--muted);font-size:13px}
+    @media(max-width:900px){.hero-main,.subgrid{grid-template-columns:1fr}.stats,.top-section{grid-template-columns:1fr}.form-grid,.form-grid.two{grid-template-columns:1fr}.rule-head{align-items:flex-start;flex-direction:column}.panel-head{align-items:flex-start;flex-direction:column}}
   </style>
 </head>
 <body>
-  <main>
-    <div class="top">
-      <div>
-        <h1 style="margin:0">Cloudflare Worker Proxy Admin</h1>
-        <div class="muted">KV key: <code>${CONFIG_KV_KEY}</code> · updatedAt: ${escapeHtml(config.updatedAt || 'never')}</div>
+  <section class="hero">
+    <div class="shell">
+      <div class="nav">
+        <div class="brand"><div class="logo">↯</div><div>Proxy Console</div></div>
+        <div class="nav-actions"><a class="btn secondary" href="/api/admin/config">JSON</a><a class="btn ghost" href="/logout">退出</a></div>
       </div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <a class="btn secondary" href="/api/admin/config">查看 JSON</a>
-        <a class="btn secondary" href="/logout">退出</a>
+      <div class="hero-main">
+        <div><div class="eyebrow">Cloudflare Worker Reverse Proxy</div><h1>Rules. Headers. Upstreams.</h1><p>以规则驱动的 Worker 代理控制台，面向线上部署和快速变更。</p></div>
+        <div class="stats"><div class="stat"><strong id="ruleCount">${config.rules.length}</strong><span>Rules</span></div><div class="stat"><strong id="enabledCount">${config.rules.filter(rule => rule.enabled !== false).length}</strong><span>Enabled</span></div><div class="stat"><strong>${escapeHtml(config.global.noMatchStatus)}</strong><span>No match</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <main class="shell">
+    <div class="panel">
+      <div class="panel-head"><div class="panel-title"><h2>Routing Control</h2><p>KV key: <code>${CONFIG_KV_KEY}</code> · ${escapeHtml(config.updatedAt || 'not saved')}</p></div><div class="toolbar"><button class="btn" type="button" id="addRuleBtn">新增规则</button><button class="btn secondary" type="button" id="addGhPresetBtn">添加 /gh</button></div></div>
+      <div class="panel-body">
+        ${options.saved ? '<div class="notice ok">配置已保存</div>' : ''}
+        ${options.error ? `<div class="notice err">${escapeHtml(options.error)}</div>` : ''}
+        ${options.kvBound ? '' : '<div class="notice warn">KV 未绑定，保存会失败</div>'}
+
+        <form method="POST" action="/admin" id="configForm">
+          <div class="top-section">
+            <label class="metric"><span>No Match</span><select id="noMatchStatus" name="noMatchStatus"><option value="404" ${config.global.noMatchStatus === 404 ? 'selected' : ''}>404 Not Found</option><option value="403" ${config.global.noMatchStatus === 403 ? 'selected' : ''}>403 Forbidden</option></select></label>
+            <label class="metric"><span>Max Redirects</span><input id="maxRedirects" name="maxRedirects" type="number" min="0" max="10" value="${config.global.maxRedirects}" /></label>
+            <label class="metric"><span>Follow Redirects</span><select id="followRedirects" name="followRedirects"><option value="true" ${config.global.followRedirects ? 'selected' : ''}>Enabled</option><option value="false" ${!config.global.followRedirects ? 'selected' : ''}>Disabled</option></select></label>
+          </div>
+
+          <div id="emptyState" class="empty" ${config.rules.length ? 'hidden' : ''}>暂无规则，点击右上角新增或添加 /gh 预置。</div>
+          <div id="ruleList" class="rule-list"></div>
+          <details class="json-details"><summary>底层 JSON</summary><textarea id="rulesJsonEditor" spellcheck="false">${escapeHtml(ruleJson)}</textarea></details>
+          <textarea id="rulesJsonHidden" name="rulesJson" hidden>${escapeHtml(ruleJson)}</textarea>
+          <div class="toolbar" style="margin-top:18px"><button class="btn" type="submit">保存配置</button></div>
+        </form>
       </div>
     </div>
 
-    ${options.saved ? '<div class="msg ok">配置已保存。</div>' : ''}
-    ${options.error ? `<div class="msg err">${escapeHtml(options.error)}</div>` : ''}
-    ${options.kvBound ? '' : '<div class="msg warn">当前未检测到 KV 绑定，可查看默认配置，但保存会失败。</div>'}
-
-    <form class="card" method="POST" action="/admin" id="configForm">
-      <h2 style="margin-top:0">全局设置</h2>
-      <div class="grid">
-        <div>
-          <label for="noMatchStatus">无命中状态码</label>
-          <select id="noMatchStatus" name="noMatchStatus">
-            <option value="404" ${config.global.noMatchStatus === 404 ? 'selected' : ''}>404</option>
-            <option value="403" ${config.global.noMatchStatus === 403 ? 'selected' : ''}>403</option>
-          </select>
-        </div>
-        <div>
-          <label for="maxRedirects">最大重定向次数</label>
-          <input id="maxRedirects" name="maxRedirects" type="number" min="0" max="10" value="${config.global.maxRedirects}" />
-        </div>
-        <div>
-          <label for="followRedirects">是否跟随重定向</label>
-          <select id="followRedirects" name="followRedirects">
-            <option value="true" ${config.global.followRedirects ? 'selected' : ''}>true</option>
-            <option value="false" ${!config.global.followRedirects ? 'selected' : ''}>false</option>
-          </select>
-        </div>
-      </div>
-
-      <h2>代理规则</h2>
-      <p class="muted">规则按 <code>priority</code> 升序匹配；同优先级按名称排序。系统保留路由 <code>/login</code>、<code>/logout</code>、<code>/admin</code>、<code>/api/admin/*</code> 不会参与代理。</p>
-      <div class="row" style="margin-bottom:10px">
-        <div style="flex:0 0 auto"><button class="btn" type="button" id="addRuleBtn">新增空规则</button></div>
-        <div style="flex:0 0 auto"><button class="btn secondary" type="button" id="addGhPresetBtn">添加 /gh 预置</button></div>
-        <div class="muted">/gh 预置：<code>/gh/* -> https://github.com/*</code></div>
-      </div>
-      <div id="ruleList"></div>
-      <details style="margin-top:14px">
-        <summary style="cursor:pointer;font-weight:700">查看/编辑底层 JSON</summary>
-        <textarea id="rulesJsonEditor" class="json-preview" spellcheck="false">${escapeHtml(ruleJson)}</textarea>
-      </details>
-      <textarea id="rulesJsonHidden" name="rulesJson" hidden>${escapeHtml(ruleJson)}</textarea>
-      <button class="btn" type="submit" style="margin-top:16px">保存配置</button>
-    </form>
-
-    <div class="card">
-      <h2 style="margin-top:0">规则测试器</h2>
-      <p class="muted">输入一个 path，Worker 会返回命中的规则、最终 upstream URL 和请求头预览，不会真的转发到上游。</p>
-      <div class="row">
-        <div>
-          <label for="testPath">测试 path</label>
-          <input id="testPath" value="${previewPath}" placeholder="/api/hello?x=1" />
-        </div>
-        <div style="flex:0 0 auto">
-          <button class="btn" id="runTestBtn" type="button">测试匹配</button>
-        </div>
-      </div>
-      <pre id="testResult" style="margin-top:16px">点击“测试匹配”查看结果</pre>
-    </div>
-
-    <div class="card">
-      <h2 style="margin-top:0">示例规则</h2>
-      <pre>${escapeHtml(JSON.stringify([defaultRule()], null, 2))}</pre>
+    <div class="subgrid">
+      <section class="panel"><div class="panel-head"><div class="panel-title"><h2>Match Preview</h2><p>预览命中规则，不触发真实转发</p></div></div><div class="panel-body"><label><span>Test Path</span><input id="testPath" value="${previewPath}" placeholder="/gh/robots.txt" /></label><button class="btn" id="runTestBtn" type="button" style="margin-top:12px">测试匹配</button><pre id="testResult" class="codebox" style="margin-top:14px">Ready</pre></div></section>
+      <section class="panel"><div class="panel-head"><div class="panel-title"><h2>Preset</h2><p>/gh → GitHub</p></div></div><div class="panel-body"><pre class="codebox">${escapeHtml(JSON.stringify(githubPresetRule(), null, 2))}</pre></div></section>
     </div>
   </main>
-  <script>
-    const presetRule = ${presetRuleJson};
-    const defaultRuleFactory = () => (${JSON.stringify(defaultRule())});
-    const initialRules = ${JSON.stringify(config.rules)};
-    const ruleList = document.getElementById('ruleList');
-    const rulesJsonEditor = document.getElementById('rulesJsonEditor');
-    const rulesJsonHidden = document.getElementById('rulesJsonHidden');
-    const form = document.getElementById('configForm');
-    const addRuleBtn = document.getElementById('addRuleBtn');
-    const addGhPresetBtn = document.getElementById('addGhPresetBtn');
-    const runTestBtn = document.getElementById('runTestBtn');
-    const testPathInput = document.getElementById('testPath');
-    const testResult = document.getElementById('testResult');
-    let rules = Array.isArray(initialRules) ? structuredClone(initialRules) : [];
 
-    const escapeHtmlClient = (value) => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
-    const headersSetToText = (headers = {}) => Object.entries(headers).map(([k, v]) => k + ': ' + v).join('\n');
-    const headersRemoveToText = (headers = []) => Array.isArray(headers) ? headers.join('\n') : '';
-    const parseHeadersSetText = (text = '') => Object.fromEntries(text.split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => {
-      const idx = line.indexOf(':');
-      if (idx === -1) return [line, ''];
-      return [line.slice(0, idx).trim(), line.slice(idx + 1).trim()];
-    }).filter(([k]) => k));
-    const parseHeadersRemoveText = (text = '') => text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-    const ensureRuleShape = (rule = {}, index = 0) => ({
-      id: rule.id || 'rule-' + (index + 1),
-      name: rule.name || 'Rule ' + (index + 1),
-      enabled: rule.enabled !== false,
-      priority: Number.isFinite(Number(rule.priority)) ? Number(rule.priority) : 100,
-      match: {
-        pattern: rule?.match?.pattern || '^/(.*)$',
-        flags: rule?.match?.flags || ''
-      },
-      target: {
-        origin: rule?.target?.origin || 'https://example.com',
-        pathTemplate: rule?.target?.pathTemplate || '/$1'
-      },
-      headers: {
-        forwardClientHeaders: rule?.headers?.forwardClientHeaders !== false,
-        set: rule?.headers?.set || {},
-        remove: Array.isArray(rule?.headers?.remove) ? rule.headers.remove : []
-      }
-    });
-
-    function syncJsonEditors() {
-      const json = JSON.stringify(rules, null, 2);
-      rulesJsonEditor.value = json;
-      rulesJsonHidden.value = json;
-    }
-
-    function renderRules() {
-      ruleList.innerHTML = '';
-      if (!rules.length) {
-        ruleList.innerHTML = '<div class="muted">当前没有规则，点击“新增空规则”或“添加 /gh 预置”。</div>';
-      }
-      rules.forEach((rawRule, index) => {
-        const rule = ensureRuleShape(rawRule, index);
-        rules[index] = rule;
-        const card = document.createElement('div');
-        card.className = 'rule-card';
-        card.innerHTML = ''
-          + '<div class="rule-head">'
-          + '  <div><strong>规则 ' + (index + 1) + '</strong> <span class="muted">id=' + escapeHtmlClient(rule.id) + '</span></div>'
-          + '  <div class="rule-actions">'
-          + '    <button class="btn ghost" type="button" data-action="up">上移</button>'
-          + '    <button class="btn ghost" type="button" data-action="down">下移</button>'
-          + '    <button class="btn danger" type="button" data-action="delete">删除</button>'
-          + '  </div>'
-          + '</div>'
-          + '<div class="grid">'
-          + '  <div><label>规则 ID</label><input data-field="id" value="' + escapeHtmlClient(rule.id) + '"></div>'
-          + '  <div><label>名称</label><input data-field="name" value="' + escapeHtmlClient(rule.name) + '"></div>'
-          + '  <div><label>优先级</label><input data-field="priority" type="number" value="' + rule.priority + '"></div>'
-          + '  <div><label>启用</label><select data-field="enabled"><option value="true"' + (rule.enabled ? ' selected' : '') + '>true</option><option value="false"' + (!rule.enabled ? ' selected' : '') + '>false</option></select></div>'
-          + '  <div><label>Regex Pattern</label><input data-field="pattern" value="' + escapeHtmlClient(rule.match.pattern) + '"></div>'
-          + '  <div><label>Regex Flags</label><input data-field="flags" value="' + escapeHtmlClient(rule.match.flags) + '" placeholder="例如 i"></div>'
-          + '  <div><label>Target Origin</label><input data-field="origin" value="' + escapeHtmlClient(rule.target.origin) + '"></div>'
-          + '  <div><label>Path Template</label><input data-field="pathTemplate" value="' + escapeHtmlClient(rule.target.pathTemplate) + '"></div>'
-          + '  <div><label>转发客户端 Header</label><select data-field="forwardClientHeaders"><option value="true"' + (rule.headers.forwardClientHeaders ? ' selected' : '') + '>true</option><option value="false"' + (!rule.headers.forwardClientHeaders ? ' selected' : '') + '>false</option></select></div>'
-          + '</div>'
-          + '<div class="grid" style="margin-top:12px">'
-          + '  <div><label>覆盖 Header（每行 Name: Value）</label><textarea data-field="headersSet">' + escapeHtmlClient(headersSetToText(rule.headers.set)) + '</textarea></div>'
-          + '  <div><label>删除 Header（每行一个）</label><textarea data-field="headersRemove">' + escapeHtmlClient(headersRemoveToText(rule.headers.remove)) + '</textarea></div>'
-          + '</div>';
-        card.querySelectorAll('[data-field]').forEach(el => {
-          el.addEventListener('input', () => updateRuleFromCard(index, card));
-          el.addEventListener('change', () => updateRuleFromCard(index, card));
-        });
-        card.querySelector('[data-action="delete"]').addEventListener('click', () => {
-          rules.splice(index, 1);
-          renderRules();
-        });
-        card.querySelector('[data-action="up"]').addEventListener('click', () => {
-          if (index === 0) return;
-          [rules[index - 1], rules[index]] = [rules[index], rules[index - 1]];
-          renderRules();
-        });
-        card.querySelector('[data-action="down"]').addEventListener('click', () => {
-          if (index >= rules.length - 1) return;
-          [rules[index + 1], rules[index]] = [rules[index], rules[index + 1]];
-          renderRules();
-        });
-        ruleList.appendChild(card);
-      });
-      syncJsonEditors();
-    }
-
-    function updateRuleFromCard(index, card) {
-      rules[index] = {
-        id: card.querySelector('[data-field="id"]').value.trim(),
-        name: card.querySelector('[data-field="name"]').value.trim(),
-        enabled: card.querySelector('[data-field="enabled"]').value === 'true',
-        priority: Number(card.querySelector('[data-field="priority"]').value || 100),
-        match: {
-          pattern: card.querySelector('[data-field="pattern"]').value,
-          flags: card.querySelector('[data-field="flags"]').value
-        },
-        target: {
-          origin: card.querySelector('[data-field="origin"]').value.trim(),
-          pathTemplate: card.querySelector('[data-field="pathTemplate"]').value
-        },
-        headers: {
-          forwardClientHeaders: card.querySelector('[data-field="forwardClientHeaders"]').value === 'true',
-          set: parseHeadersSetText(card.querySelector('[data-field="headersSet"]').value),
-          remove: parseHeadersRemoveText(card.querySelector('[data-field="headersRemove"]').value)
-        }
-      };
-      syncJsonEditors();
-    }
-
-    addRuleBtn?.addEventListener('click', () => {
-      rules.push(defaultRuleFactory());
-      renderRules();
-    });
-
-    addGhPresetBtn?.addEventListener('click', () => {
-      const existingIndex = rules.findIndex(rule => rule.id === presetRule.id || rule.name === presetRule.name);
-      if (existingIndex >= 0) {
-        rules[existingIndex] = structuredClone(presetRule);
-      } else {
-        rules.push(structuredClone(presetRule));
-      }
-      renderRules();
-    });
-
-    rulesJsonEditor?.addEventListener('change', () => {
-      try {
-        const parsed = JSON.parse(rulesJsonEditor.value);
-        rules = Array.isArray(parsed) ? parsed : [];
-        renderRules();
-      } catch (error) {
-        alert('规则 JSON 解析失败：' + error.message);
-      }
-    });
-
-    form?.addEventListener('submit', () => {
-      syncJsonEditors();
-    });
-
-    runTestBtn?.addEventListener('click', async () => {
-      const path = testPathInput.value.trim() || '/';
-      testResult.textContent = 'Testing...';
-      try {
-        const response = await fetch('/api/admin/test-match', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path })
-        });
-        const data = await response.json();
-        testResult.textContent = JSON.stringify(data, null, 2);
-      } catch (error) {
-        testResult.textContent = JSON.stringify({ ok: false, error: error.message || 'Test failed' }, null, 2);
-      }
-    });
-
-    renderRules();
-  </script>
+  <script type="application/json" id="initialRulesData">${initialRulesJson}</script>
+  <script type="application/json" id="presetRuleData">${presetRuleJson}</script>
+  <script type="application/json" id="defaultRuleData">${defaultRuleJson}</script>
+  ${renderAdminClientScript()}
 </body>
 </html>`;
 }
@@ -973,19 +978,19 @@ function renderHomePage() {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Cloudflare Worker Proxy</title>
   <style>
-    body{font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;background:#020617;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px;box-sizing:border-box}
-    .card{max-width:760px;background:#0f172a;border:1px solid #1e293b;border-radius:18px;padding:28px}
-    code{background:#1e293b;padding:2px 6px;border-radius:6px}
-    a{color:#93c5fd}
+    :root{--ink:#0f172a;--muted:#64748b;--brand:#2563eb;--line:#e2e8f0}*{box-sizing:border-box}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink);background:#f8fafc}.hero{min-height:100vh;display:grid;place-items:center;padding:32px;background:radial-gradient(circle at 15% 12%,rgba(96,165,250,.32),transparent 30%),radial-gradient(circle at 85% 10%,rgba(167,139,250,.28),transparent 30%),linear-gradient(135deg,#eff6ff,#fff)}.card{width:min(980px,100%);background:rgba(255,255,255,.82);border:1px solid rgba(226,232,240,.9);border-radius:32px;box-shadow:0 28px 80px rgba(15,23,42,.12);padding:48px;backdrop-filter:blur(18px)}.badge{display:inline-flex;gap:8px;align-items:center;border:1px solid #bfdbfe;color:#1d4ed8;background:#eff6ff;border-radius:999px;padding:8px 12px;font-weight:800;font-size:13px}.title{font-size:clamp(42px,7vw,86px);line-height:.92;letter-spacing:-.07em;margin:22px 0 18px}.lead{font-size:19px;line-height:1.7;color:var(--muted);max-width:720px;margin:0}.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:30px}.btn{border:0;border-radius:14px;padding:13px 18px;text-decoration:none;font-weight:850;display:inline-flex;align-items:center;gap:8px}.btn.primary{background:var(--brand);color:#fff;box-shadow:0 14px 30px rgba(37,99,235,.24)}.btn.secondary{background:#0f172a;color:#fff}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:36px}.item{border:1px solid var(--line);border-radius:22px;background:#fff;padding:20px}.item b{display:block;margin-bottom:8px}.item span{color:var(--muted);font-size:14px;line-height:1.6}@media(max-width:760px){.card{padding:28px}.grid{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1>Cloudflare Worker Proxy</h1>
-    <p>这是一个基于 Cloudflare Workers + KV 的带后台规则代理。管理员访问 <code>/login</code> 登录，再到 <code>/admin</code> 配置 path regex、upstream 和请求头策略。</p>
-    <p>系统保留路由：<code>/login</code>、<code>/logout</code>、<code>/admin</code>、<code>/api/admin/*</code>。</p>
-    <p><a href="/login">进入后台</a></p>
-  </div>
+  <section class="hero">
+    <div class="card">
+      <div class="badge">↯ Worker Proxy</div>
+      <h1 class="title">Edge proxy control for real traffic.</h1>
+      <p class="lead">基于 Cloudflare Workers 和 KV 的规则代理后台，支持路径正则、上游地址、Header 覆盖和在线匹配预览。</p>
+      <div class="actions"><a class="btn primary" href="/login">进入后台</a><a class="btn secondary" href="/gh">测试 /gh</a></div>
+      <div class="grid"><div class="item"><b>Regex Routing</b><span>按 path 正则命中第一条启用规则。</span></div><div class="item"><b>KV Config</b><span>后台配置保存到 Cloudflare KV。</span></div><div class="item"><b>Header Control</b><span>支持请求头转发、删除与覆盖。</span></div></div>
+    </div>
+  </section>
 </body>
 </html>`;
 }
