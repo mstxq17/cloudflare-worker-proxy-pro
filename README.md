@@ -22,7 +22,6 @@ Cloudflare Worker Proxy Pro 是一个运行在 **Cloudflare Workers + KV** 上�
 | `admin.rad0.indevs.in` | 后台控制台 |
 | `proxy.rad0.indevs.in` | 产品落地页 |
 | `gh.rad0.indevs.in` | 代理到 GitHub 上游 |
-| `wc.rad0.indevs.in` | 代理到 IP 上游 |
 
 运行时分流：
 
@@ -63,7 +62,6 @@ id = "your-real-kv-namespace-id"
 admin.rad0.indevs.in
 proxy.rad0.indevs.in
 gh.rad0.indevs.in
-wc.rad0.indevs.in
 ```
 
 也可以使用 Worker Routes 覆盖通配子域名，例如 `*.rad0.indevs.in/*`，但需要确保请求最终进入同一个 Worker。
@@ -160,23 +158,6 @@ dnsRecord: auto
 
 ```text
 https://gh.rad0.indevs.in/robots.txt
-```
-
-### IP 上游示例
-
-```text
-subdomain: wc
-scheme: http
-upstreamHost: 117.50.186.158
-upstreamPort: 80
-hostHeader: 117.50.186.158
-resolveDns: disabled
-```
-
-访问：
-
-```text
-https://wc.rad0.indevs.in/
 ```
 
 ## Host Route 字段

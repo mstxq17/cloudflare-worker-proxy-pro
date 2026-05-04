@@ -178,27 +178,6 @@ function githubPresetRoute() {
   };
 }
 
-function wcPresetRoute() {
-  return {
-    id: 'wc',
-    name: 'WC IP Origin',
-    enabled: true,
-    subdomain: 'wc',
-    scheme: 'http',
-    upstreamHost: '117.50.186.158',
-    upstreamPort: 80,
-    hostHeader: '117.50.186.158',
-    resolveDns: false,
-    dnsRecord: DEFAULT_DNS_RECORD,
-    preservePath: true,
-    headers: {
-      forwardClientHeaders: true,
-      set: {},
-      remove: []
-    }
-  };
-}
-
 function defaultRoute(index = 0) {
   return {
     id: `route-${index + 1}`,
@@ -471,7 +450,7 @@ function renderRouteCard(route, index, runtime) {
       <label><span>Name</span><input name="route_${index}_name" value="${escapeHtml(route.name)}"></label>
       <label><span>Subdomain</span><input name="route_${index}_subdomain" value="${escapeHtml(route.subdomain)}"></label>
       <label><span>Scheme</span><select name="route_${index}_scheme"><option value="http" ${route.scheme === 'http' ? 'selected' : ''}>HTTP</option><option value="https" ${route.scheme === 'https' ? 'selected' : ''}>HTTPS</option></select></label>
-      <label><span>Upstream Host / IP</span><input name="route_${index}_upstreamHost" value="${escapeHtml(route.upstreamHost)}" placeholder="github.com / 117.50.186.158"></label>
+      <label><span>Upstream Host / IP</span><input name="route_${index}_upstreamHost" value="${escapeHtml(route.upstreamHost)}" placeholder="github.com"></label>
       <label><span>Port</span><input name="route_${index}_upstreamPort" type="number" min="1" max="65535" value="${escapeHtml(route.upstreamPort)}"></label>
       <label><span>Host Header</span><input name="route_${index}_hostHeader" value="${escapeHtml(route.hostHeader)}" placeholder="github.com"></label>
       <label><span>DNS Record</span><select name="route_${index}_dnsRecord"><option value="auto" ${route.dnsRecord === 'auto' ? 'selected' : ''}>AUTO</option><option value="A" ${route.dnsRecord === 'A' ? 'selected' : ''}>A</option><option value="AAAA" ${route.dnsRecord === 'AAAA' ? 'selected' : ''}>AAAA</option></select></label>
@@ -496,11 +475,11 @@ function renderAdminConsole(config, runtime, options = {}) {
 </style></head><body>
 <section class="hero"><div class="shell"><div class="nav"><div class="brand"><div class="logo">↯</div><div>Proxy Console</div></div><a href="/logout">退出</a></div><div class="hero-grid"><div><div class="eyebrow">TCP Socket Reverse Proxy</div><h1>Edge upstreams over TCP.</h1><p>${escapeHtml(runtime.mainDomain)} · admin: ${escapeHtml(runtime.adminHost)}</p><div style="margin-top:18px"><span class="tcp-badge">HTTP/1.1 over TCP</span></div></div><div class="stats"><div class="stat"><strong>${routes.length}</strong><span>Routes</span></div><div class="stat"><strong>${routes.filter(route => route.enabled).length}</strong><span>Enabled</span></div><div class="stat"><strong>v4</strong><span>KV Schema</span></div></div></div></div></section>
 <main class="shell">
-  <div class="panel"><div class="panel-head"><div class="panel-title"><h2>Host Routes</h2><p>subdomain → TCP upstream · DNS · Host Header</p></div><div class="toolbar"><button form="routeForm" class="btn" name="_action" value="addRoute">新增 Route</button><button form="routeForm" class="btn secondary" name="_action" value="addGh">添加 GitHub</button><button form="routeForm" class="btn secondary" name="_action" value="addWc">添加 WC IP</button></div></div><div class="panel-body">
+  <div class="panel"><div class="panel-head"><div class="panel-title"><h2>Host Routes</h2><p>subdomain → TCP upstream · DNS · Host Header</p></div><div class="toolbar"><button form="routeForm" class="btn" name="_action" value="addRoute">新增 Route</button><button form="routeForm" class="btn secondary" name="_action" value="addGh">添加 GitHub</button></div></div><div class="panel-body">
     ${options.saved ? '<div class="notice ok">配置已保存</div>' : ''}${options.error ? `<div class="notice err">${escapeHtml(options.error)}</div>` : ''}${options.kvBound ? '' : '<div class="notice warn">KV 未绑定，保存会失败</div>'}
     <form method="POST" action="/" id="routeForm"><div class="top-grid"><label class="field"><span>No Match</span><select name="noMatchStatus"><option value="404" ${normalized.global.noMatchStatus === 404 ? 'selected' : ''}>404</option><option value="403" ${normalized.global.noMatchStatus === 403 ? 'selected' : ''}>403</option></select></label><label class="field"><span>Runtime</span><input value="cloudflare:sockets" readonly></label><label class="field"><span>DNS</span><input value="node:dns resolve4 / resolve6" readonly></label></div><input type="hidden" name="routeCount" value="${routes.length}">${routes.length ? `<div class="route-list">${routes.map((route, index) => renderRouteCard(route, index, runtime)).join('')}</div>` : '<div class="empty">暂无 Host Route，添加一个 TCP upstream 开始使用。</div>'}<div class="toolbar" style="margin-top:18px"><button class="btn" name="_action" value="save">保存配置</button></div></form>
   </div></div>
-  <div class="subgrid"><section class="panel"><div class="panel-head"><div class="panel-title"><h2>Preview</h2><p>host + path → TCP request</p></div></div><div class="panel-body"><form method="GET" action="/"><label><span>Host</span><input name="previewHost" value="${escapeHtml(options.previewHost || `gh.${runtime.mainDomain}`)}"></label><label style="margin-top:12px"><span>Path</span><input name="previewPath" value="${escapeHtml(options.previewPath || '/robots.txt')}"></label><button class="btn" style="margin-top:12px">预览</button></form><pre class="code" style="margin-top:14px">${escapeHtml(previewJson)}</pre></div></section><section class="panel"><div class="panel-head"><div class="panel-title"><h2>Presets</h2><p>production-ready examples</p></div></div><div class="panel-body"><pre class="code">${escapeHtml(JSON.stringify({ github: githubPresetRoute(), wc: wcPresetRoute() }, null, 2))}</pre></div></section></div>
+  <div class="subgrid"><section class="panel"><div class="panel-head"><div class="panel-title"><h2>Preview</h2><p>host + path → TCP request</p></div></div><div class="panel-body"><form method="GET" action="/"><label><span>Host</span><input name="previewHost" value="${escapeHtml(options.previewHost || `gh.${runtime.mainDomain}`)}"></label><label style="margin-top:12px"><span>Path</span><input name="previewPath" value="${escapeHtml(options.previewPath || '/robots.txt')}"></label><button class="btn" style="margin-top:12px">预览</button></form><pre class="code" style="margin-top:14px">${escapeHtml(previewJson)}</pre></div></section><section class="panel"><div class="panel-head"><div class="panel-title"><h2>Presets</h2><p>production-ready examples</p></div></div><div class="panel-body"><pre class="code">${escapeHtml(JSON.stringify({ github: githubPresetRoute() }, null, 2))}</pre></div></section></div>
 </main></body></html>`;
 }
 
@@ -546,12 +525,6 @@ function applyAdminAction(config, action) {
   if (action === 'addRoute') next.routes.push(normalizeRoute(defaultRoute(next.routes.length), next.routes.length));
   if (action === 'addGh') {
     const preset = githubPresetRoute();
-    const index = next.routes.findIndex(route => route.subdomain === preset.subdomain || route.id === preset.id);
-    if (index >= 0) next.routes[index] = normalizeRoute(preset, index);
-    else next.routes.push(normalizeRoute(preset, next.routes.length));
-  }
-  if (action === 'addWc') {
-    const preset = wcPresetRoute();
     const index = next.routes.findIndex(route => route.subdomain === preset.subdomain || route.id === preset.id);
     if (index >= 0) next.routes[index] = normalizeRoute(preset, index);
     else next.routes.push(normalizeRoute(preset, next.routes.length));
