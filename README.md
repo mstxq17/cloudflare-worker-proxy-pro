@@ -1,87 +1,99 @@
-# cloudflare-worker-proxy-pro
+# Cloudflare Worker Proxy Pro
 
-这是一个部署在 **Cloudflare Workers** 上的带后台代理。
+Cloudflare Worker Proxy Pro 是一个基于 **Cloudflare Workers + KV** 的 Host-based 反向代理控制台。它使用子域名作为虚拟主机入口，将不同 Host 映射到不同 upstream，适合把多个代理服务统一部署在同一个 Worker 上。
 
-后台入口：
+## 核心能力
 
-- `/login`
-- `/admin`
+- Host-based routing：按请求 Host 匹配，不使用路径前缀作为主路由模型
+- Admin domain console：通过 `admin.<MAIN_DOMAIN>` 管理所有代理规则
+- KV configuration：代理规则保存到 Cloudflare KV
+- Upstream proxy：支持 `http://` 与 `https://` upstream
+- Header policy：支持请求头转发、删除、覆盖
+- Preview：后台预览 `host + path -> upstream URL`
 
-配置存储依赖 **Cloudflare KV**。
+## 域名模型
 
----
+以主域名 `rad0.indevs.in` 为例：
 
-## 是否一定要获取 KV 的 id？
+| 域名 | 作用 |
+|---|---|
+| `admin.rad0.indevs.in` | 后台控制台 |
+| `proxy.rad0.indevs.in` | 产品落地页 |
+| `gh.rad0.indevs.in` | Host Route，代理到 `https://github.com` |
+| `api.rad0.indevs.in` | Host Route，代理到自定义 API upstream |
 
-**是的，要。**
+代理示例：
 
-在 `wrangler.toml` 里：
-
-- `binding` 是 Worker 运行时变量名
-- `id` 是 Cloudflare 真实 KV Namespace ID
-
-例如：
-
-```toml
-[[kv_namespaces]]
-binding = "KV"
-id = "2f6f0d3f4a4b4f6d9e1234567890abcd"
+```text
+https://gh.rad0.indevs.in/robots.txt
+  -> https://github.com/robots.txt
 ```
 
-这里：
+## 项目文件
 
-- `binding = "KV"` 可以自定义成变量名
-- `id = "..."` **必须是真实的 namespace id**
-
-**不能直接写命名空间名字。**
-
-比如下面这种是错的：
-
-```toml
-[[kv_namespaces]]
-binding = "KV"
-id = "cloudflare-worker-proxy-pro-config"
+```text
+.
+├── worker.js
+├── wrangler.toml
+├── package.json
+├── package-lock.json
+└── README.md
 ```
 
-因为 `id` 字段不认“名字”，只认 Cloudflare 返回的真实 ID。
-
----
-
-## Cloudflare Worker 部署教程
+## Cloudflare 准备
 
 ### 1. 创建 KV Namespace
 
-在 Cloudflare Dashboard 中：
-
-1. 登录 Cloudflare
-2. 进入 **Storage & Databases**
-3. 找到 **KV**
-4. 点击 **Create namespace**
-5. 创建一个名字，例如：
+在 Cloudflare Dashboard 创建一个 KV Namespace，例如：
 
 ```text
 cloudflare-worker-proxy-pro-config
 ```
 
-创建完成后，复制它的 **Namespace ID**。
+如果使用 Dashboard 绑定，可以直接选择这个 namespace。
 
----
+如果使用 `wrangler.toml` 部署，需要复制 Cloudflare 提供的 Namespace ID。
 
-### 2. 修改 `wrangler.toml`
+### 2. 绑定 Custom Domains
 
-推荐这样写：
+将需要的子域名全部绑定到同一个 Worker：
 
-```toml
-name = "cloudflare-worker-proxy-pro"
-main = "worker.js"
-compatibility_date = "2026-05-04"
-
-[[kv_namespaces]]
-binding = "KV"
-id = "你的真实-kv-namespace-id"
+```text
+admin.rad0.indevs.in
+proxy.rad0.indevs.in
+gh.rad0.indevs.in
+api.rad0.indevs.in
 ```
 
-例如：
+Cloudflare 路由应确保这些 Host 的请求都进入同一个 Worker。
+
+### 3. 配置环境变量
+
+必须配置：
+
+```text
+MAIN_DOMAIN=rad0.indevs.in
+ADMIN=your-admin-password
+```
+
+可选配置：
+
+```text
+ADMIN_SUBDOMAIN=admin
+LANDING_SUBDOMAIN=proxy
+```
+
+默认值：
+
+| 变量 | 默认值 |
+|---|---|
+| `MAIN_DOMAIN` | `rad0.indevs.in` |
+| `ADMIN_SUBDOMAIN` | `admin` |
+| `LANDING_SUBDOMAIN` | `proxy` |
+
+## wrangler 配置
+
+推荐 `wrangler.toml`：
 
 ```toml
 name = "cloudflare-worker-proxy-pro"
@@ -90,103 +102,109 @@ compatibility_date = "2026-05-04"
 
 [[kv_namespaces]]
 binding = "KV"
-id = "2f6f0d3f4a4b4f6d9e1234567890abcd"
+id = "your-real-kv-namespace-id"
 ```
 
 说明：
 
-- `binding = "KV"` 表示代码里会用到 `env.KV`
-- 本项目代码同时兼容这些绑定名：
-  - `CONFIG_KV`
-  - `CF_ACCEL_KV`
-  - `ACCEL_KV`
-  - `KV`
+- `binding = "KV"` 是 Worker 运行时变量名
+- `id` 必须是 Cloudflare KV Namespace ID
+- 不能把 `id` 写成 namespace 名称
 
-所以你用 `KV` 最简单。
-
----
-
-### 3. 配置后台密码 `ADMIN`
-
-在 Cloudflare Worker 设置里添加环境变量：
-
-- Name: `ADMIN`
-- Value: 你的后台登录密码
-
-例如：
+Worker 代码会自动查找以下 KV binding：
 
 ```text
-ADMIN=your-password
+CONFIG_KV
+CF_ACCEL_KV
+ACCEL_KV
+KV
 ```
 
----
-
-### 4. 部署 Worker
-
-如果你在本地项目里部署：
+## 安装
 
 ```bash
 npm install
-npm run deploy
 ```
-
-如果你先想检查：
-
-```bash
-npm run deploy:dry
-```
-
----
-
-### 5. 登录后台
-
-部署成功后访问：
-
-```text
-https://你的域名/login
-```
-
-登录成功后进入：
-
-```text
-https://你的域名/admin
-```
-
-然后你就可以在后台：
-
-- 新增规则
-- 保存规则
-- 测试规则匹配
-
----
-
-## 推荐首次测试
-
-后台里直接添加 `/gh` 规则，或者使用 `/gh` 预置，保存后测试：
-
-```text
-https://你的域名/gh
-https://你的域名/gh/robots.txt
-```
-
----
 
 ## 本地开发
 
 ```bash
-npm install
 npm run dev
 ```
 
-默认地址：
+默认端口：
 
 ```text
 http://localhost:8787
 ```
 
----
+本地开发时可通过请求不同 Host 测试虚拟主机逻辑。
 
-## 检查语法
+## 部署
+
+执行 dry-run：
+
+```bash
+npm run deploy:dry
+```
+
+发布到 Cloudflare Workers：
+
+```bash
+npm run deploy
+```
+
+## 首次配置
+
+1. 访问后台域名：
+
+```text
+https://admin.rad0.indevs.in
+```
+
+2. 使用 `ADMIN` 环境变量中的密码登录。
+
+3. 添加 Host Route，例如：
+
+```text
+subdomain: gh
+origin: https://github.com
+```
+
+4. 保存配置。
+
+5. 测试代理：
+
+```text
+https://gh.rad0.indevs.in/robots.txt
+```
+
+## Host Route 字段
+
+| 字段 | 说明 |
+|---|---|
+| `id` | 规则 ID |
+| `name` | 显示名称 |
+| `subdomain` | 子域名前缀，例如 `gh` |
+| `origin` | upstream，例如 `https://github.com` |
+| `enabled` | 是否启用 |
+| `preservePath` | 是否保留请求 path 和 query |
+| `headers.forwardClientHeaders` | 是否转发客户端请求头 |
+| `headers.set` | 覆盖或新增请求头 |
+| `headers.remove` | 删除请求头 |
+
+## 运行时行为
+
+```text
+admin.<MAIN_DOMAIN>  -> 后台控制台
+proxy.<MAIN_DOMAIN>  -> 产品落地页
+<sub>.<MAIN_DOMAIN>  -> 查询 Host Route 并代理
+其他 Host            -> 404 Not Managed
+```
+
+旧的 path-based 路由不再保留。`/gh`、`/admin` 等路径不会在非 admin host 上触发代理或后台兼容逻辑。
+
+## 检查
 
 ```bash
 npm run check

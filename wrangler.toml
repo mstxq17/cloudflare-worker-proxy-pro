@@ -2,10 +2,15 @@ name = "cloudflare-worker-proxy-pro"
 main = "worker.js"
 compatibility_date = "2026-05-04"
 
-# 本地运行：npm run dev
-# 发布前请绑定 KV Namespace，并设置 ADMIN 环境变量。
-# Worker 会按以下绑定名自动查找：CONFIG_KV / CF_ACCEL_KV / ACCEL_KV / KV
-#
+# Required runtime variables:
+# MAIN_DOMAIN = "rad0.indevs.in"
+# ADMIN should be configured as a secret in Cloudflare Dashboard or with wrangler secret.
+# Optional runtime variables:
+# ADMIN_SUBDOMAIN = "admin"
+# LANDING_SUBDOMAIN = "proxy"
+
+# Bind a Cloudflare KV namespace before deployment.
+# Dashboard can bind by namespace selection; wrangler.toml requires the real namespace id.
 # [[kv_namespaces]]
-# binding = "CONFIG_KV"
-# id = "your-kv-namespace-id"
+# binding = "KV"
+# id = "your-real-kv-namespace-id"
