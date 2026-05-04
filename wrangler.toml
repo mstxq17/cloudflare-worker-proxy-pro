@@ -9,9 +9,29 @@ compatibility_flags = ["nodejs_compat"]
 
 # workers_dev = true
 
+# Recommended for this project: exact Custom Domains. The Worker is the origin
+# for these hostnames, so do not add /* and do not use a wildcard unless you
+# really want every subdomain captured by this Worker.
+# [[routes]]
+# pattern = "example.com"
+# custom_domain = true
+#
+# [[routes]]
+# pattern = "admin.example.com"
+# custom_domain = true
+#
+# [[routes]]
+# pattern = "proxy.example.com"
+# custom_domain = true
+#
+# [[routes]]
+# pattern = "gh.example.com"
+# custom_domain = true
+#
+# Classic Routes also work, but each hostname must have a proxied DNS record:
 # routes = [
 #   { pattern = "example.com/*", zone_name = "example.com" },
-#   { pattern = "*.example.com/*", zone_name = "example.com" }
+#   { pattern = "gh.example.com/*", zone_name = "example.com" }
 # ]
 
 # [vars]
