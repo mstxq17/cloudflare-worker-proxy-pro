@@ -3,15 +3,25 @@ main = "worker.js"
 compatibility_date = "2026-05-04"
 compatibility_flags = ["nodejs_compat"]
 
-# Required runtime variables:
-# MAIN_DOMAIN = "rad0.indevs.in"
-# ADMIN should be configured as a secret in Cloudflare Dashboard or with wrangler secret.
-# Optional runtime variables:
+# Production deployment template.
+# Keep real domain, KV namespace id, and ADMIN secret out of the public repository.
+# Copy this block to wrangler.local.toml, uncomment it, and fill real values locally.
+
+# workers_dev = true
+
+# routes = [
+#   { pattern = "example.com/*", zone_name = "example.com" },
+#   { pattern = "*.example.com/*", zone_name = "example.com" }
+# ]
+
+# [vars]
+# MAIN_DOMAIN = "example.com"
 # ADMIN_SUBDOMAIN = "admin"
 # LANDING_SUBDOMAIN = "proxy"
+# Do not store the real admin password in wrangler.toml.
+# Configure it with: npx wrangler secret put ADMIN --config wrangler.local.toml
+# ADMIN = "set-with-wrangler-secret"
 
-# Bind a Cloudflare KV namespace before deployment.
-# Dashboard can bind by namespace selection; wrangler.toml requires the real namespace id.
 # [[kv_namespaces]]
 # binding = "KV"
-# id = "your-real-kv-namespace-id"
+# id = "your-kv-namespace-id"

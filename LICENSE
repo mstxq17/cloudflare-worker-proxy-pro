@@ -1,0 +1,45 @@
+Cloudflare Worker Proxy Pro Non-Commercial License
+Version 1.0
+
+Copyright (c) 2026 xq17
+Repository: https://github.com/mstxq17/cloudflare-worker-proxy-pro
+
+1. Grant of Rights
+
+Permission is granted to any individual or organization to use, copy, modify, and distribute this software and derivative works solely for non-commercial purposes, subject to the terms of this license.
+
+2. Non-Commercial Restriction
+
+Commercial use is prohibited without prior written permission from the copyright holder. Commercial use includes, but is not limited to:
+
+- selling, leasing, sublicensing, or providing paid access to this software or derivative works;
+- using this software to operate a paid service, SaaS product, managed hosting product, proxy platform, or revenue-generating infrastructure;
+- bundling this software into a commercial product or service;
+- using this software for internal business operations where the software provides direct commercial value.
+
+3. Redistribution Requirements
+
+Any permitted redistribution or derivative work must retain:
+
+- this license file;
+- the copyright notice;
+- the repository URL;
+- clear notice that commercial use is prohibited.
+
+4. No Trademark Grant
+
+This license does not grant rights to use the names, logos, or trademarks of the copyright holder except as required for attribution.
+
+5. Disclaimer of Warranty
+
+This software is provided "as is", without warranty of any kind, express or implied, including but not limited to warranties of merchantability, fitness for a particular purpose, and non-infringement.
+
+6. Limitation of Liability
+
+In no event shall the copyright holder be liable for any claim, damages, or other liability arising from the use of this software.
+
+7. Commercial Permission
+
+For commercial licensing or written permission, contact the copyright holder through the repository.
+
+中文摘要：本项目仅允许非商业用途使用、复制、修改和分发。未经版权持有人书面授权，禁止将本项目或其衍生作品用于销售、付费服务、SaaS、托管平台、商业产品、商业基础设施或其他直接商业获利场景。

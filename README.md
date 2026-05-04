@@ -186,6 +186,10 @@ Cloudflare Workers TCP Sockets 不适合代理标准 HTTP/HTTPS 网站端口。�
 
 HTTPS 域名上游默认可启用 DNS 解析。若源站强依赖 TLS SNI 且解析到 IP 后握手失败，可在后台关闭 `resolveDns`，让 TCP TLS 直接连接域名。
 
+## 许可
+
+本项目采用非商业使用许可。未经版权持有人书面授权，禁止将本项目或其衍生作品用于销售、付费服务、SaaS、托管平台、商业产品或其他直接商业获利场景。完整条款见 `LICENSE`。
+
 ## 检查
 
 ```bash
