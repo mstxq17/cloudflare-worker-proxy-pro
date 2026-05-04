@@ -1,0 +1,15 @@
+{
+  "name": "cloudflare-worker-proxy-pro",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check worker.js",
+    "dev": "wrangler dev --local --port 8787",
+    "deploy:dry": "wrangler deploy --dry-run",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.87.0"
+  }
+}

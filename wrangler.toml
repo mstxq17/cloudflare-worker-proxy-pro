@@ -1,0 +1,11 @@
+name = "cloudflare-worker-proxy-pro"
+main = "worker.js"
+compatibility_date = "2026-05-04"
+
+# 本地运行：npm run dev
+# 发布前请绑定 KV Namespace，并设置 ADMIN 环境变量。
+# Worker 会按以下绑定名自动查找：CONFIG_KV / CF_ACCEL_KV / ACCEL_KV / KV
+#
+# [[kv_namespaces]]
+# binding = "CONFIG_KV"
+# id = "your-kv-namespace-id"
