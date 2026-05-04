@@ -149,6 +149,7 @@ transport: fetch
 scheme: https
 upstreamHost: github.com
 upstreamPort: 443
+upstreamTimeoutMs: 15000
 resolveDns: enabled
 dnsRecord: auto
 ```
@@ -170,6 +171,7 @@ https://gh.rad0.indevs.in/robots.txt
 | `scheme` | 上游协议，`http` 或 `https` |
 | `upstreamHost` | 上游域名或 IP |
 | `upstreamPort` | 上游端口，HTTP 默认 `80`，HTTPS 默认 `443` |
+| `upstreamTimeoutMs` | 上游超时时间，默认 `15000`，范围 `1000-120000` |
 | `resolveDns` | 域名上游是否先执行 DNS 解析 |
 | `dnsRecord` | DNS 记录偏好：`auto`、`A`、`AAAA` |
 | `upstreamPath` | 可选上游基础路径 |
