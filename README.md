@@ -32,55 +32,23 @@ proxy.<MAIN_DOMAIN>  -> 产品落地页
 其他 Host            -> 404 Not Managed
 ```
 
-## Cloudflare 配置
+## 产品概览
 
-### 1. 创建 KV Namespace
+Cloudflare Worker Proxy Pro 提供一个运行在 Cloudflare Edge 上的多租户反向代理控制台。核心思路是：一个 Worker 管理多个子域名，每个子域名在后台对应一组 Host Route 规则，再由 Worker 在运行时把请求转发到指定上游。
 
-在 Cloudflare Dashboard 创建一个 KV Namespace，例如：
+适用场景：
 
-```text
-cloudflare-worker-proxy-pro-config
-```
+- 为多个子域名统一提供边缘反向代理入口
+- 把 GitHub、API、静态站、内网穿透出口等上游统一收口到一个 Worker
+- 按 Host 和 Path 拆分不同上游
+- 在后台动态管理规则，而不是每次改代码重新发版
 
-Dashboard 部署时可以直接选择 namespace 绑定到 Worker。
+核心组件：
 
-使用 `wrangler.toml` 部署时必须填写 Cloudflare 提供的真实 Namespace ID：
-
-```toml
-[[kv_namespaces]]
-binding = "KV"
-id = "your-real-kv-namespace-id"
-```
-
-`binding = "KV"` 是 Worker 代码里的运行时变量名；`id` 是 Cloudflare KV Namespace ID，不是 namespace 名称。
-
-### 2. 绑定 Custom Domains
-
-将后台、落地页和所有代理子域名都绑定到同一个 Worker：
-
-```text
-admin.rad0.indevs.in
-proxy.rad0.indevs.in
-gh.rad0.indevs.in
-```
-
-也可以使用 Worker Routes 覆盖通配子域名，例如 `*.rad0.indevs.in/*`，但需要确保请求最终进入同一个 Worker。
-
-### 3. 配置环境变量
-
-必须配置：
-
-```text
-MAIN_DOMAIN=rad0.indevs.in
-ADMIN=your-admin-password
-```
-
-可选配置：
-
-```text
-ADMIN_SUBDOMAIN=admin
-LANDING_SUBDOMAIN=proxy
-```
+- **Worker**：负责接收请求、识别 Host、匹配 Route、执行转发
+- **KV**：保存后台配置和路由规则
+- **Admin Console**：提供登录、配置、预览和健康检查界面
+- **Custom Domains**：把多个业务域名绑定到同一个 Worker
 
 ## wrangler.toml
 
@@ -108,15 +76,70 @@ KV
 
 ## 安装与部署
 
-部署前先准备好 Cloudflare 侧资源：
+本项目提供两种安装方式：
 
-1. 创建 KV Namespace，并把真实 `id` 填入 `wrangler.toml`。
-2. 配置 `MAIN_DOMAIN`、`ADMIN_SUBDOMAIN`、`LANDING_SUBDOMAIN` 等变量。
-3. 推荐用 Custom Domains 绑定需要接入 Worker 的域名；如果使用 classic Routes，则对应 DNS 记录必须已在 Cloudflare 中启用代理。
+- **手动安装**：在 Cloudflare Dashboard 手动创建 Worker、绑定 KV、配置环境变量、绑定域名
+- **自动安装（推荐）**：在本地通过 Wrangler 一键部署
 
-### 方式一：自动部署（推荐）
+### 方式一：手动安装
 
-适合代码仓库部署或本机一键部署。Wrangler 作为项目依赖安装，命令通过 `npx` 调用，不需要全局安装 Wrangler。
+适合希望完全在 Cloudflare Dashboard 内完成配置的场景。
+
+#### 1. 创建 Worker
+
+在 Cloudflare Dashboard 中创建一个新的 Worker。
+
+#### 2. 绑定 KV Namespace
+
+在 Cloudflare Dashboard 创建一个 KV Namespace，例如：
+
+```text
+cloudflare-worker-proxy-pro-config
+```
+
+然后把该 Namespace 绑定到 Worker，Binding 名称使用：
+
+```text
+KV
+```
+
+#### 3. 配置环境变量
+
+在 Worker 的 Settings / Variables 中配置：
+
+必须项：
+
+```text
+MAIN_DOMAIN=rad0.indevs.in
+ADMIN=your-admin-password
+```
+
+可选项：
+
+```text
+ADMIN_SUBDOMAIN=admin
+LANDING_SUBDOMAIN=proxy
+```
+
+#### 4. 绑定域名
+
+把需要接入的域名绑定到同一个 Worker，推荐使用 Custom Domains，例如：
+
+```text
+rad0.indevs.in
+admin.rad0.indevs.in
+proxy.rad0.indevs.in
+gh.rad0.indevs.in
+wc.rad0.indevs.in
+```
+
+#### 5. 部署代码
+
+把本仓库中的 `worker.js` 内容部署到 Worker 后即可使用。
+
+### 方式二：自动安装（推荐）
+
+适合本地开发、持续迭代和自动化部署。Wrangler 作为项目依赖安装，通过 `npx` 调用即可。
 
 ```bash
 npm install
@@ -124,39 +147,20 @@ npx wrangler login
 npx wrangler deploy --config wrangler.toml
 ```
 
-如果已经通过 `CLOUDFLARE_API_TOKEN` 配置了 API Token，可跳过 `npx wrangler login`，适合 CI/CD 自动部署：
+如果使用 API Token，可在自动化环境中直接部署：
 
 ```bash
 npm install
 CLOUDFLARE_API_TOKEN=your-cloudflare-api-token npx wrangler deploy --config wrangler.toml
 ```
 
-也可以使用项目脚本：
+如果不希望把真实 KV ID、域名和密码写入公开仓库，可使用本地私有配置文件：
 
 ```bash
-npm run deploy:dry
-npm run deploy
+npx wrangler deploy --config wrangler.local.toml
 ```
 
-> 如果你的真实域名、KV ID 或后台密码不希望写入公开仓库，可以复制一份本地配置，例如 `wrangler.local.toml`，然后执行 `npx wrangler deploy --config wrangler.local.toml`。
-
-### 方式二：手动部署
-
-适合不使用项目依赖、直接在服务器或本机环境中手动操作。先全局安装并登录 Wrangler：
-
-```bash
-npm install -g wrangler
-wrangler login
-wrangler deploy --config wrangler.toml
-```
-
-如果使用本地私有配置文件：
-
-```bash
-wrangler deploy --config wrangler.local.toml
-```
-
-### 本地开发与检查
+### 本地开发与校验
 
 安装依赖：
 
@@ -224,7 +228,7 @@ https://gh.rad0.indevs.in/robots.txt
 
 ## Upstream Proxy Pass 规则
 
-现在后台把原先的 `scheme`、`upstreamHost`、`upstreamPort`、`proxyPassPath` 合并成一个完整字段：`upstreamProxyPass`。
+后台使用一个完整字段 `upstreamProxyPass` 描述上游地址。
 
 示例：
 
