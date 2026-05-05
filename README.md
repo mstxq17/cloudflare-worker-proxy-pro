@@ -108,6 +108,56 @@ KV
 
 ## 安装与部署
 
+部署前先准备好 Cloudflare 侧资源：
+
+1. 创建 KV Namespace，并把真实 `id` 填入 `wrangler.toml`。
+2. 配置 `MAIN_DOMAIN`、`ADMIN_SUBDOMAIN`、`LANDING_SUBDOMAIN` 等变量。
+3. 推荐用 Custom Domains 绑定需要接入 Worker 的域名；如果使用 classic Routes，则对应 DNS 记录必须已在 Cloudflare 中启用代理。
+
+### 方式一：自动部署（推荐）
+
+适合代码仓库部署或本机一键部署。Wrangler 作为项目依赖安装，命令通过 `npx` 调用，不需要全局安装 Wrangler。
+
+```bash
+npm install
+npx wrangler login
+npx wrangler deploy --config wrangler.toml
+```
+
+如果已经通过 `CLOUDFLARE_API_TOKEN` 配置了 API Token，可跳过 `npx wrangler login`，适合 CI/CD 自动部署：
+
+```bash
+npm install
+CLOUDFLARE_API_TOKEN=your-cloudflare-api-token npx wrangler deploy --config wrangler.toml
+```
+
+也可以使用项目脚本：
+
+```bash
+npm run deploy:dry
+npm run deploy
+```
+
+> 如果你的真实域名、KV ID 或后台密码不希望写入公开仓库，可以复制一份本地配置，例如 `wrangler.local.toml`，然后执行 `npx wrangler deploy --config wrangler.local.toml`。
+
+### 方式二：手动部署
+
+适合不使用项目依赖、直接在服务器或本机环境中手动操作。先全局安装并登录 Wrangler：
+
+```bash
+npm install -g wrangler
+wrangler login
+wrangler deploy --config wrangler.toml
+```
+
+如果使用本地私有配置文件：
+
+```bash
+wrangler deploy --config wrangler.local.toml
+```
+
+### 本地开发与检查
+
 安装依赖：
 
 ```bash
@@ -120,16 +170,11 @@ npm install
 npm run dev
 ```
 
-部署检查：
+部署前检查：
 
 ```bash
+npm run check
 npm run deploy:dry
-```
-
-发布到 Cloudflare Workers：
-
-```bash
-npm run deploy
 ```
 
 ## 首次使用
