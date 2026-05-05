@@ -160,6 +160,30 @@ function routeOrigin(route) {
   return `${scheme}://${formatHostForHeader(route.upstreamHost, route.upstreamPort, scheme)}`;
 }
 
+function routeUpstreamProxyPass(route) {
+  const proxyPassPath = normalizeProxyPassPath(route?.proxyPassPath ?? '');
+  return `${routeOrigin(route)}${proxyPassPath}`;
+}
+
+function parseUpstreamProxyPass(input = '') {
+  const raw = String(input || '').trim();
+  if (!raw) throw new Error('Upstream Proxy Pass 不能为空');
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`Upstream Proxy Pass 无效：${raw}`);
+  }
+  const scheme = url.protocol === 'http:' ? 'http' : url.protocol === 'https:' ? 'https' : '';
+  if (!scheme) throw new Error(`Upstream Proxy Pass 仅支持 http/https：${raw}`);
+  const upstreamHost = normalizeHostname(url.hostname || '');
+  if (!validateUpstreamHost(upstreamHost)) throw new Error(`Upstream Proxy Pass Host 无效：${upstreamHost || raw}`);
+  const defaultPort = scheme === 'https' ? 443 : 80;
+  const upstreamPort = url.port ? Number(url.port) : defaultPort;
+  const proxyPassPath = normalizeProxyPassPath(url.pathname || '');
+  return { scheme, upstreamHost, upstreamPort, proxyPassPath };
+}
+
 function getHeaderValue(headers = {}, name = '') {
   const target = String(name || '').toLowerCase();
   for (const [key, value] of Object.entries(headers || {})) {
@@ -182,9 +206,9 @@ function githubPresetRoute() {
     scheme: 'https',
     upstreamHost: 'github.com',
     upstreamPort: 443,
+    upstreamProxyPass: 'https://github.com',
     upstreamTimeoutMs: DEFAULT_UPSTREAM_TIMEOUT_MS,
     locationPath: '/',
-    proxyPassPath: '',
     resolveDns: true,
     dnsRecord: DEFAULT_DNS_RECORD,
     preservePath: true,
@@ -206,9 +230,9 @@ function defaultRoute(index = 0) {
     scheme: 'https',
     upstreamHost: 'example.com',
     upstreamPort: 443,
+    upstreamProxyPass: 'https://example.com',
     upstreamTimeoutMs: DEFAULT_UPSTREAM_TIMEOUT_MS,
     locationPath: '/',
-    proxyPassPath: '',
     resolveDns: true,
     dnsRecord: DEFAULT_DNS_RECORD,
     preservePath: true,
@@ -272,17 +296,20 @@ function isStandardHttpTransport(route = {}) {
 
 function normalizeRoute(route = {}, index = 0) {
   const base = defaultRoute(index);
-  const scheme = String(route.scheme || base.scheme).trim().toLowerCase() === 'http' ? 'http' : 'https';
-  const upstreamHost = normalizeHostname(route.upstreamHost || base.upstreamHost);
+  const parsedUpstream = parseUpstreamProxyPass(route.upstreamProxyPass || routeOrigin(base));
+  const scheme = String(route.scheme || parsedUpstream.scheme).trim().toLowerCase() === 'http' ? 'http' : 'https';
+  const upstreamHost = normalizeHostname(route.upstreamHost || parsedUpstream.upstreamHost);
   const defaultPort = scheme === 'https' ? 443 : 80;
-  const port = Number(route.upstreamPort || defaultPort);
+  const port = Number(route.upstreamPort || parsedUpstream.upstreamPort || defaultPort);
   const transport = normalizeTransport(route.transport || base.transport);
   const upstreamTimeoutMs = normalizeUpstreamTimeoutMs(route.upstreamTimeoutMs || base.upstreamTimeoutMs);
   const locationPath = normalizeLocationPath(route.locationPath || base.locationPath);
   const legacyUpstreamPath = String(route.upstreamPath ?? '').trim();
   const proxyPassPath = route.proxyPassPath !== undefined
     ? normalizeProxyPassPath(route.proxyPassPath)
-    : normalizeProxyPassPath(route.preservePath === false ? (legacyUpstreamPath || '/') : legacyUpstreamPath);
+    : route.upstreamProxyPass
+      ? parsedUpstream.proxyPassPath
+      : normalizeProxyPassPath(route.preservePath === false ? (legacyUpstreamPath || '/') : legacyUpstreamPath);
   const resolveDns = !isIpAddress(upstreamHost) && (route.resolveDns !== undefined ? route.resolveDns === true : true);
   const dnsRecord = normalizeDnsRecord(route.dnsRecord);
   return {
@@ -295,6 +322,7 @@ function normalizeRoute(route = {}, index = 0) {
     scheme,
     upstreamHost,
     upstreamPort: Number.isFinite(port) ? port : defaultPort,
+    upstreamProxyPass: `${scheme}://${formatHostForHeader(upstreamHost, Number.isFinite(port) ? port : defaultPort, scheme)}${proxyPassPath}`,
     upstreamTimeoutMs,
     locationPath,
     proxyPassPath,
@@ -526,25 +554,24 @@ function renderLoginPage(runtime, error = '') {
 
 function renderRouteCard(route, index, runtime) {
   const origin = routeOrigin(route);
+  const upstreamProxyPass = routeUpstreamProxyPass(route);
   const transportLabel = route.transport === 'tcp' ? 'TCP' : 'Fetch';
   const proxyPassLabel = route.proxyPassPath === '' ? '(no URI)' : route.proxyPassPath;
   const tcpWarning = route.transport === 'tcp' && isStandardHttpTransport(route)
     ? '<div class="route-warning">当前规则使用 TCP Socket 连接标准 HTTP/HTTPS 端口。Cloudflare Workers 对这类上游通常要求使用 Fetch；如访问返回 Bad Gateway，请将 Transport 切换为 Fetch。</div>'
     : '';
   return `<article class="route-card" data-route-index="${index}">
-    <div class="route-head"><div><strong>${escapeHtml(route.name)}</strong><small>${escapeHtml(getRouteHost(route, runtime))}${escapeHtml(route.locationPath)} → ${escapeHtml(origin)}${escapeHtml(route.proxyPassPath)}</small><div class="meta-row"><span>${escapeHtml(transportLabel)}</span><span>${escapeHtml(route.scheme.toUpperCase())}</span><span>location ${escapeHtml(route.locationPath)}</span><span>proxy URI ${escapeHtml(proxyPassLabel)}</span></div></div><div class="route-status"><span class="pill ${route.enabled ? 'ok' : 'off'}">${route.enabled ? 'Active' : 'Disabled'}</span><span class="health-pill pending" data-health-index="${index}">Checking</span></div></div>
+    <div class="route-head"><div><strong>${escapeHtml(route.name)}</strong><small>${escapeHtml(getRouteHost(route, runtime))}${escapeHtml(route.locationPath)} → ${escapeHtml(upstreamProxyPass)}</small><div class="meta-row"><span>${escapeHtml(transportLabel)}</span><span>location ${escapeHtml(route.locationPath)}</span><span>proxy URI ${escapeHtml(proxyPassLabel)}</span></div></div><div class="route-status"><span class="pill ${route.enabled ? 'ok' : 'off'}">${route.enabled ? 'Active' : 'Disabled'}</span><span class="health-pill pending" data-health-index="${index}">Checking</span></div></div>
     <div class="grid primary-grid">
       <label><span>Name</span><input name="route_${index}_name" value="${escapeHtml(route.name)}"></label>
       <label><span>Subdomain</span><input name="route_${index}_subdomain" value="${escapeHtml(route.subdomain)}"></label>
       <label><span>Location Path</span><input name="route_${index}_locationPath" value="${escapeHtml(route.locationPath)}" placeholder="/api/"></label>
       <label><span>Transport</span><select name="route_${index}_transport"><option value="fetch" ${route.transport === 'fetch' ? 'selected' : ''}>Fetch</option><option value="tcp" ${route.transport === 'tcp' ? 'selected' : ''}>TCP Socket</option></select></label>
-      <label><span>Scheme</span><select name="route_${index}_scheme"><option value="http" ${route.scheme === 'http' ? 'selected' : ''}>HTTP</option><option value="https" ${route.scheme === 'https' ? 'selected' : ''}>HTTPS</option></select></label>
-      <label class="span-2"><span>Upstream Host / IP</span><input name="route_${index}_upstreamHost" value="${escapeHtml(route.upstreamHost)}" placeholder="github.com"></label>
-      <label><span>Port</span><input name="route_${index}_upstreamPort" type="number" min="1" max="65535" value="${escapeHtml(route.upstreamPort)}"></label>
+      <label class="span-2"><span>Upstream Proxy Pass</span><input name="route_${index}_upstreamProxyPass" value="${escapeHtml(upstreamProxyPass)}" placeholder="https://github.com or http://127.0.0.1:8080/api/"></label>
       <label class="switch"><span>Enabled</span><input name="route_${index}_enabled" type="checkbox" ${route.enabled ? 'checked' : ''}></label>
     </div>
     ${tcpWarning}
-    <details class="advanced"><summary><span>高级设置</span><b>Nginx Path · ID · Timeout · DNS · Headers</b></summary><div class="grid advanced-grid"><label><span>Route ID</span><input name="route_${index}_id" value="${escapeHtml(route.id)}"></label><label><span>Proxy Pass URI</span><input name="route_${index}_proxyPassPath" value="${escapeHtml(route.proxyPassPath)}" placeholder="blank, /, /v1/"></label><label><span>Timeout (ms)</span><input name="route_${index}_upstreamTimeoutMs" type="number" min="${MIN_UPSTREAM_TIMEOUT_MS}" max="${MAX_UPSTREAM_TIMEOUT_MS}" step="1000" value="${escapeHtml(route.upstreamTimeoutMs)}"></label><label><span>DNS Record</span><select name="route_${index}_dnsRecord"><option value="auto" ${route.dnsRecord === 'auto' ? 'selected' : ''}>AUTO</option><option value="A" ${route.dnsRecord === 'A' ? 'selected' : ''}>A</option><option value="AAAA" ${route.dnsRecord === 'AAAA' ? 'selected' : ''}>AAAA</option></select></label><label class="switch"><span>Resolve DNS</span><input name="route_${index}_resolveDns" type="checkbox" ${route.resolveDns ? 'checked' : ''}></label><label class="switch"><span>Forward Headers</span><input name="route_${index}_forwardClientHeaders" type="checkbox" ${route.headers.forwardClientHeaders ? 'checked' : ''}></label></div><div class="path-help">Nginx style: URI 留空会保留完整路径；填 <code>/</code> 会去掉 Location Path 后再拼接；例如 location <code>/api/</code> + URI <code>/</code> 会把 <code>/api/user</code> 转发为 <code>/user</code>。</div><div class="grid two"><label><span>Set Headers</span><textarea name="route_${index}_headersSet" placeholder="Host: github.com\nX-Proxy: edge">${escapeHtml(headerSetToText(route.headers.set))}</textarea></label><label><span>Remove Headers</span><textarea name="route_${index}_headersRemove" placeholder="Cookie\nAuthorization">${escapeHtml(headerRemoveToText(route.headers.remove))}</textarea></label></div></details>
+    <details class="advanced"><summary><span>高级设置</span><b>ID · Timeout · DNS · Headers</b></summary><div class="grid advanced-grid"><label><span>Route ID</span><input name="route_${index}_id" value="${escapeHtml(route.id)}"></label><label><span>Timeout (ms)</span><input name="route_${index}_upstreamTimeoutMs" type="number" min="${MIN_UPSTREAM_TIMEOUT_MS}" max="${MAX_UPSTREAM_TIMEOUT_MS}" step="1000" value="${escapeHtml(route.upstreamTimeoutMs)}"></label><label><span>DNS Record</span><select name="route_${index}_dnsRecord"><option value="auto" ${route.dnsRecord === 'auto' ? 'selected' : ''}>AUTO</option><option value="A" ${route.dnsRecord === 'A' ? 'selected' : ''}>A</option><option value="AAAA" ${route.dnsRecord === 'AAAA' ? 'selected' : ''}>AAAA</option></select></label><label class="switch"><span>Resolve DNS</span><input name="route_${index}_resolveDns" type="checkbox" ${route.resolveDns ? 'checked' : ''}></label><label class="switch"><span>Forward Headers</span><input name="route_${index}_forwardClientHeaders" type="checkbox" ${route.headers.forwardClientHeaders ? 'checked' : ''}></label></div><div class="path-help">在 <code>Upstream Proxy Pass</code> 中直接填写完整上游地址，例如 <code>https://github.com</code>、<code>https://api.example.com/v1/</code> 或 <code>http://127.0.0.1:8080/</code>。其中协议、Host、端口和基础 URI 会一起保存。</div><div class="grid two"><label><span>Set Headers</span><textarea name="route_${index}_headersSet" placeholder="Host: github.com\nX-Proxy: edge">${escapeHtml(headerSetToText(route.headers.set))}</textarea></label><label><span>Remove Headers</span><textarea name="route_${index}_headersRemove" placeholder="Cookie\nAuthorization">${escapeHtml(headerRemoveToText(route.headers.remove))}</textarea></label></div></details>
     <div class="actions"><button name="_action" value="moveUp:${index}" class="btn ghost">上移</button><button name="_action" value="moveDown:${index}" class="btn ghost">下移</button><button name="_action" value="delete:${index}" class="btn danger">删除</button></div>
   </article>`;
 }
@@ -715,11 +742,8 @@ async function parseAdminConfigFromForm(request) {
       subdomain: String(form.get(`route_${index}_subdomain`) || '').trim(),
       locationPath: String(form.get(`route_${index}_locationPath`) || '/').trim(),
       transport: String(form.get(`route_${index}_transport`) || 'fetch').trim(),
-      scheme: String(form.get(`route_${index}_scheme`) || 'https').trim(),
-      upstreamHost: String(form.get(`route_${index}_upstreamHost`) || '').trim(),
-      upstreamPort: Number(form.get(`route_${index}_upstreamPort`) || 0),
+      upstreamProxyPass: String(form.get(`route_${index}_upstreamProxyPass`) || '').trim(),
       upstreamTimeoutMs: Number(form.get(`route_${index}_upstreamTimeoutMs`) || DEFAULT_UPSTREAM_TIMEOUT_MS),
-      proxyPassPath: String(form.get(`route_${index}_proxyPassPath`) || '').trim(),
       resolveDns: form.get(`route_${index}_resolveDns`) === 'on',
       dnsRecord: String(form.get(`route_${index}_dnsRecord`) || DEFAULT_DNS_RECORD).trim(),
       headers: {

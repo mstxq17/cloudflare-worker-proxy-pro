@@ -192,11 +192,8 @@ https://admin.rad0.indevs.in
 ```text
 subdomain: gh
 locationPath: /
-proxyPassPath: <empty>
 transport: fetch
-scheme: https
-upstreamHost: github.com
-upstreamPort: 443
+upstreamProxyPass: https://github.com
 upstreamTimeoutMs: 15000
 resolveDns: enabled
 dnsRecord: auto
@@ -217,52 +214,52 @@ https://gh.rad0.indevs.in/robots.txt
 | `subdomain` | 子域名前缀，例如 `gh` |
 | `locationPath` | Host 内的路径前缀，默认 `/`，多条同 Host 规则按最长前缀优先匹配 |
 | `transport` | 代理方式，`fetch` 或 `tcp` |
-| `scheme` | 上游协议，`http` 或 `https` |
-| `upstreamHost` | 上游域名或 IP |
-| `upstreamPort` | 上游端口，HTTP 默认 `80`，HTTPS 默认 `443` |
+| `upstreamProxyPass` | 完整上游地址，例如 `https://github.com`、`https://api.example.com/v1/`、`http://127.0.0.1:8080/` |
 | `upstreamTimeoutMs` | 上游超时时间，默认 `15000`，范围 `1000-120000` |
-| `proxyPassPath` | Nginx 风格 `proxy_pass` URI；留空保留完整路径，填 `/` 会剥离 `locationPath` 后拼接 |
 | `resolveDns` | 域名上游是否先执行 DNS 解析 |
 | `dnsRecord` | DNS 记录偏好：`auto`、`A`、`AAAA` |
 | `headers.forwardClientHeaders` | 是否转发客户端请求头 |
 | `headers.set` | 覆盖或新增请求头 |
 | `headers.remove` | 删除请求头 |
 
-## Nginx 风格路径规则
+## Upstream Proxy Pass 规则
 
-每条 Host Route 可以设置 `locationPath` 和 `proxyPassPath`：
+现在后台把原先的 `scheme`、`upstreamHost`、`upstreamPort`、`proxyPassPath` 合并成一个完整字段：`upstreamProxyPass`。
+
+示例：
+
+```text
+https://github.com
+http://117.50.186.158
+https://api.example.com:8443/v1/
+http://127.0.0.1:8080/
+```
+
+说明：
+
+- 协议、Host/IP、端口、基础 URI 一起由 `upstreamProxyPass` 表达
+- `locationPath` 仍然保留，用于定义当前 Host 下匹配哪段请求路径
+- 如果 `upstreamProxyPass` 中包含路径前缀，例如 `https://api.example.com/v1/`，则请求会以该前缀作为上游基路径
+- 如果同一个 `subdomain` 下存在多条规则，Worker 会选择 `locationPath` 最长的匹配项
+
+例如：
 
 ```text
 locationPath: /api/
-proxyPassPath: <empty>
+upstreamProxyPass: https://backend.example.com/v1/
 ```
 
-等价于：
-
-```nginx
-location /api/ {
-    proxy_pass http://backend;
-}
-```
-
-请求 `/api/user` 会转发为 `/api/user`。
+请求：
 
 ```text
-locationPath: /api/
-proxyPassPath: /
+/api/user
 ```
 
-等价于：
+会上游转发为：
 
-```nginx
-location /api/ {
-    proxy_pass http://backend/;
-}
+```text
+https://backend.example.com/v1/api/user
 ```
-
-请求 `/api/user` 会转发为 `/user`。
-
-如果同一个 `subdomain` 下存在多条规则，Worker 会选择 `locationPath` 最长的匹配项。
 
 ## TCP Sockets 限制
 
