@@ -4,7 +4,7 @@ import dns from 'node:dns';
 const CONFIG_KV_KEY = 'proxy:settings';
 const SESSION_COOKIE_NAME = '__proxy_admin_session';
 const SESSION_MAX_AGE = 60 * 60 * 12;
-const DEFAULT_MAIN_DOMAIN = 'rad0.indevs.in';
+const DEFAULT_MAIN_DOMAIN = 'edge.example.com';
 const DEFAULT_ADMIN_SUBDOMAIN = 'admin';
 const DEFAULT_LANDING_SUBDOMAIN = 'proxy';
 const DEFAULT_DNS_RECORD = 'auto';

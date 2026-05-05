@@ -2,7 +2,7 @@
 
 Cloudflare Worker Proxy Pro 是一个运行在 **Cloudflare Workers + KV** 上的 Host-based 反向代理控制台。每个子域名对应一条虚拟主机规则，Worker 根据请求 Host 匹配上游；标准 HTTP/HTTPS 端口使用 Worker `fetch()`，需要非标准端口或特殊 TCP 场景时使用 TCP Sockets。
 
-![image-20260505104918447](asset/product.png)
+![product](asset/product.png)
 
 ## 产品能力
 
@@ -17,13 +17,13 @@ Cloudflare Worker Proxy Pro 是一个运行在 **Cloudflare Workers + KV** 上�
 
 ## 域名模型
 
-以 `MAIN_DOMAIN=rad0.indevs.in` 为例：
+以 `MAIN_DOMAIN=edge.example.com` 为例：
 
 | 域名 | 作用 |
 |---|---|
-| `admin.rad0.indevs.in` | 后台控制台 |
-| `proxy.rad0.indevs.in` | 产品落地页 |
-| `gh.rad0.indevs.in` | 代理到 GitHub 上游 |
+| `admin.edge.example.com` | 后台控制台 |
+| `proxy.edge.example.com` | 产品落地页 |
+| `app.edge.example.com` | 代理到示例上游 |
 
 运行时分流：
 
@@ -41,7 +41,7 @@ Cloudflare Worker Proxy Pro 提供一个运行在 Cloudflare Edge 上的多租�
 适用场景：
 
 - 为多个子域名统一提供边缘反向代理入口
-- 把 GitHub、API、静态站、内网穿透出口等上游统一收口到一个 Worker
+- 把 API、静态站、内网穿透出口等上游统一收口到一个 Worker
 - 按 Host 和 Path 拆分不同上游
 - 在后台动态管理规则，而不是每次改代码重新发版
 
@@ -112,7 +112,7 @@ KV
 必须项：
 
 ```text
-MAIN_DOMAIN=rad0.indevs.in
+MAIN_DOMAIN=edge.example.com
 ADMIN=your-admin-password
 ```
 
@@ -128,11 +128,11 @@ LANDING_SUBDOMAIN=proxy
 把需要接入的域名绑定到同一个 Worker，推荐使用 Custom Domains，例如：
 
 ```text
-rad0.indevs.in
-admin.rad0.indevs.in
-proxy.rad0.indevs.in
-gh.rad0.indevs.in
-wc.rad0.indevs.in
+edge.example.com
+admin.edge.example.com
+proxy.edge.example.com
+app.edge.example.com
+static.edge.example.com
 ```
 
 #### 5. 部署代码
@@ -188,7 +188,7 @@ npm run deploy:dry
 访问后台：
 
 ```text
-https://admin.rad0.indevs.in
+https://admin.edge.example.com
 ```
 
 使用 `ADMIN` 环境变量中的密码登录，然后创建 Host Route。
@@ -196,10 +196,10 @@ https://admin.rad0.indevs.in
 ### 域名上游示例
 
 ```text
-subdomain: gh
+subdomain: app
 locationPath: /
 transport: fetch
-upstreamProxyPass: https://github.com
+upstreamProxyPass: https://origin.example.com
 upstreamTimeoutMs: 15000
 resolveDns: enabled
 dnsRecord: auto
@@ -208,7 +208,7 @@ dnsRecord: auto
 访问：
 
 ```text
-https://gh.rad0.indevs.in/robots.txt
+https://app.edge.example.com/robots.txt
 ```
 
 ## Host Route 字段
@@ -217,10 +217,10 @@ https://gh.rad0.indevs.in/robots.txt
 |---|---|
 | `id` | 规则 ID |
 | `name` | 显示名称 |
-| `subdomain` | 子域名前缀，例如 `gh` |
+| `subdomain` | 子域名前缀，例如 `app` |
 | `locationPath` | Host 内的路径前缀，默认 `/`，多条同 Host 规则按最长前缀优先匹配 |
 | `transport` | 代理方式，`fetch` 或 `tcp` |
-| `upstreamProxyPass` | 完整上游地址，例如 `https://github.com`、`https://api.example.com/v1/`、`http://127.0.0.1:8080/` |
+| `upstreamProxyPass` | 完整上游地址，例如 `https://origin.example.com`、`https://api.example.com/v1/`、`http://127.0.0.1:8080/` |
 | `upstreamTimeoutMs` | 上游超时时间，默认 `15000`，范围 `1000-120000` |
 | `resolveDns` | 域名上游是否先执行 DNS 解析 |
 | `dnsRecord` | DNS 记录偏好：`auto`、`A`、`AAAA` |
@@ -235,10 +235,9 @@ https://gh.rad0.indevs.in/robots.txt
 示例：
 
 ```text
-https://github.com
-http://117.50.186.158
+https://origin.example.com
+http://198.51.100.10
 https://api.example.com:8443/v1/
-http://127.0.0.1:8080/
 ```
 
 说明：
