@@ -2,6 +2,8 @@
 
 Cloudflare Worker Proxy Pro 是一个运行在 **Cloudflare Workers + KV** 上的 Host-based 反向代理控制台。每个子域名对应一条虚拟主机规则，Worker 根据请求 Host 匹配上游；标准 HTTP/HTTPS 端口使用 Worker `fetch()`，需要非标准端口或特殊 TCP 场景时使用 TCP Sockets。
 
+![image-20260505104918447](asset/product.png)
+
 ## 产品能力
 
 - Host-based routing：按子域名匹配代理规则
